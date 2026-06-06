@@ -1,0 +1,38 @@
+{
+  "name": "zalyx-agent-society",
+  "version": "0.1.0",
+  "description": "Multi-agent underwriting system for merchant financing",
+  "main": "dist/demo/sample-run.js",
+  "scripts": {
+    "dev": "ts-node demo/sample-run.ts",
+    "build": "tsc",
+    "start": "node dist/demo/sample-run.js",
+    "demo": "ts-node demo/sample-run.ts",
+    "test": "jest",
+    "type-check": "tsc --noEmit"
+  },
+  "keywords": [
+    "agents",
+    "qwen",
+    "fintech",
+    "underwriting",
+    "halal-finance"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "dependencies": {
+    "@langchain/core": "^0.1.0",
+    "@langchain/langgraph": "^0.0.1",
+    "axios": "^1.6.0",
+    "dotenv": "^16.3.1",
+    "openai": "^4.20.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/jest": "^29.5.0",
+    "jest": "^29.5.0",
+    "ts-jest": "^29.1.0",
+    "ts-node": "^10.9.0",
+    "typescript": "^5.1.0"
+  }
+}
