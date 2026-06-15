@@ -1,0 +1,37 @@
+{
+  "id": "ZALYX-003",
+  "businessName": "Apex Creative Services",
+  "businessType": "Freelancer",
+  "ageInDays": 39,
+  "orders": {
+    "total": 8,
+    "completed": 2,
+    "cancelled": 0,
+    "outstanding": 6
+  },
+  "receivables": {
+    "outstandingOrders": 6,
+    "totalOwedNaira": 1425000,
+    "totalCollectedNaira": 850000,
+    "uncollectedNaira": 575000
+  },
+  "monthlyRevenue": [
+    { "month": "2026-05", "revenueNaira": 1105000, "orderCount": 8, "uniqueCustomers": 8 }
+  ],
+  "signals": {
+    "period30d": {
+      "activeDays": 0,
+      "totalOrders": 0,
+      "avgDailyRevenueNaira": 0,
+      "editRate": 0,
+      "deleteRate": 0,
+      "backdateRate": 0,
+      "batchDays": 0
+    },
+    "period90d": {
+      "activeDays": 6,
+      "totalOrders": 8,
+      "avgDailyRevenueNaira": 12278
+    }
+  }
+}

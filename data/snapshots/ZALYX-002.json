@@ -1,0 +1,39 @@
+{
+  "id": "ZALYX-002",
+  "businessName": "Glow Naturals",
+  "businessType": "Natural Skin & Hair Products",
+  "ageInDays": 71,
+  "orders": {
+    "total": 31,
+    "completed": 29,
+    "cancelled": 1,
+    "outstanding": 1
+  },
+  "receivables": {
+    "outstandingOrders": 1,
+    "totalOwedNaira": 6000,
+    "totalCollectedNaira": 5000,
+    "uncollectedNaira": 1000
+  },
+  "monthlyRevenue": [
+    { "month": "2026-04", "revenueNaira": 151100, "orderCount": 16, "uniqueCustomers": 13 },
+    { "month": "2026-05", "revenueNaira": 42700,  "orderCount": 7,  "uniqueCustomers": 6  },
+    { "month": "2026-06", "revenueNaira": 58500,  "orderCount": 8,  "uniqueCustomers": 7  }
+  ],
+  "signals": {
+    "period30d": {
+      "activeDays": 2,
+      "totalOrders": 8,
+      "avgDailyRevenueNaira": 1950,
+      "editRate": 0,
+      "deleteRate": 0,
+      "backdateRate": 0,
+      "batchDays": 0
+    },
+    "period90d": {
+      "activeDays": 12,
+      "totalOrders": 33,
+      "avgDailyRevenueNaira": 2803
+    }
+  }
+}

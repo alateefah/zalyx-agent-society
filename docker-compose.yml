@@ -1,0 +1,21 @@
+version: "3.8"
+
+services:
+  zalyx-agent-society:
+    build: .
+    container_name: zalyx-agent-society
+    ports:
+      - "3001:3001"
+    environment:
+      - QWEN_API_KEY=${QWEN_API_KEY}
+      - QWEN_MODEL=${QWEN_MODEL:-qwen-max}
+      - QWEN_API_BASE_URL=https://dashscope-intl.aliyuncs.com/compatible-mode/v1
+      - PORT=3001
+      - NODE_ENV=production
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3001/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s

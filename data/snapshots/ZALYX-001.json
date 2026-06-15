@@ -1,0 +1,49 @@
+{
+  "id": "ZALYX-001",
+  "businessName": "Bright Future Academy",
+  "businessType": "School",
+  "ageInDays": 58,
+  "orders": {
+    "total": 41,
+    "completed": 24,
+    "cancelled": 0,
+    "outstanding": 17
+  },
+  "receivables": {
+    "outstandingOrders": 17,
+    "totalOwedNaira": 2545000,
+    "totalCollectedNaira": 1481000,
+    "uncollectedNaira": 1064000
+  },
+  "monthlyRevenue": [
+    { "month": "2026-04", "revenueNaira": 307000,  "orderCount": 6,  "uniqueCustomers": 6  },
+    { "month": "2026-05", "revenueNaira": 2653000, "orderCount": 23, "uniqueCustomers": 20 },
+    { "month": "2026-06", "revenueNaira": 1338000, "orderCount": 17, "uniqueCustomers": 17 }
+  ],
+  "signals": {
+    "period30d": {
+      "activeDays": 7,
+      "totalOrders": 23,
+      "avgDailyRevenueNaira": 61000,
+      "editRate": 0,
+      "deleteRate": 0,
+      "backdateRate": 0,
+      "batchDays": 0
+    },
+    "period90d": {
+      "activeDays": 17,
+      "totalOrders": 47,
+      "avgDailyRevenueNaira": 47755
+    }
+  },
+  "existingDecision": {
+    "score": 75,
+    "tier": "B",
+    "eligible": true,
+    "offerAmountNaira": 250000,
+    "fixedFeeNaira": 25000,
+    "tenorMonths": 3,
+    "confidence": "MED",
+    "asOfDate": "2026-06-07"
+  }
+}

@@ -1,191 +1,303 @@
-import { MerchantData, RiskAssessmentResult, AgentDebateMessage } from "../utils/types";
-import { qwenClient } from "../utils/qwen-client";
+import {
+  ZalyxMerchantSnapshot,
+  RiskAssessmentResult,
+  AgentDebateMessage,
+  BusinessAnalysisResult,
+} from "../utils/types";
+import { qwenClient, SUBMIT_RISK_VERDICT_TOOL } from "../utils/qwen-client";
+import { mcpClient } from "../utils/mcp-client";
+
+const fmt = (n: number) =>
+  `₦${n.toLocaleString("en-NG", { maximumFractionDigits: 0 })}`;
 
 export class RiskAssessmentAgent {
   agentName = "Risk Assessment Agent";
-  agentRole =
-    "Independently evaluates risk factors and challenges assumptions";
+  agentRole = "Independently evaluates credit risk and challenges optimistic assumptions";
 
-  async evaluate(merchantData: MerchantData): Promise<{
+  async evaluate(
+    snapshot: ZalyxMerchantSnapshot,
+    businessAnalysis: BusinessAnalysisResult
+  ): Promise<{
     result: RiskAssessmentResult;
     debateMessage: AgentDebateMessage;
   }> {
-    const volatilityIndex = this.calculateVolatility(merchantData);
-    const concentrationRisk = this.assessConcentrationRisk(merchantData);
-    const operationalStability = this.assessOperationalStability(merchantData);
-    const riskFactors = this.identifyRiskFactors(merchantData);
+    const risk = this.assessRisk(snapshot, businessAnalysis);
+    const revenues = snapshot.monthlyRevenue.map(m => m.revenueNaira);
 
-    const overallRiskScore = this.calculateRiskScore(
-      volatilityIndex,
-      operationalStability,
-      riskFactors.length
-    );
+    // ── MCP Tool Call 3: Sector default rate ──────────────────────────────────
+    let defaultRateContext = "Historical default rate data unavailable.";
+    try {
+      const riskTier: "low" | "moderate" | "high" =
+        risk.overallRiskScore < 35 ? "low" : risk.overallRiskScore < 65 ? "moderate" : "high";
+      const dr = await mcpClient.getSectorDefaultRate({
+        business_type: snapshot.businessType,
+        risk_tier: riskTier,
+      });
+      defaultRateContext = [
+        `Historical default rate for ${snapshot.businessType} / ${riskTier} risk: ${dr.historical_default_rate_pct}%`,
+        `Cross-sector average for ${riskTier} risk: ${dr.cross_sector_average_pct}%`,
+        dr.interpretation,
+        `Suggested minimum Murabaha profit margin: ${dr.suggested_murabaha_margin_floor}%`,
+      ].join("\n");
+      console.log(`   🔌 MCP get_sector_default_rate → ${dr.historical_default_rate_pct}% default rate for ${snapshot.businessType}/${riskTier}`);
+    } catch (err) {
+      console.warn("   ⚠️  MCP default rate unavailable — proceeding without portfolio context");
+    }
+    const peakRevenue = Math.max(...revenues);
+    const latestRevenue = revenues[revenues.length - 1];
+    const revenueDeclinePct = ((latestRevenue - peakRevenue) / peakRevenue) * 100;
 
-    const analysisPrompt = `
-You are a risk officer evaluating merchant financing risk.
-- Volatility Index: ${volatilityIndex}/100
-- Concentration Risk: ${concentrationRisk}
-- Operational Stability: ${operationalStability}/100
-- Risk Factors Identified: ${riskFactors.length}
-  ${riskFactors.map((f) => `- ${f}`).join("\n")}
+    const prompt = `
+You are a credit risk officer. Your job is to challenge the business analyst's assumptions and identify risks the optimistic view may have missed.
 
-Provide a professional risk assessment. Be conservative and challenge assumptions.
-What specific risks concern you most?
+MERCHANT: ${snapshot.businessName} (${snapshot.businessType})
+Platform age: ${snapshot.ageInDays} days
+
+BUSINESS ANALYST'S VIEW:
+- Business health score: ${businessAnalysis.businessHealthScore}/100
+- Their recommendation: "${businessAnalysis.recommendation}"
+
+YOUR RISK FINDINGS:
+
+CREDIT & COLLECTIONS RISK:
+- Outstanding receivables: ${fmt(snapshot.receivables.uncollectedNaira)} uncollected on ${snapshot.receivables.outstandingOrders} orders
+- Receivables as % of total revenue: ${risk.receivablesRate.toFixed(1)}%
+- Order completion rate: ${((snapshot.orders.completed / snapshot.orders.total) * 100).toFixed(0)}%
+
+REVENUE RISK:
+- Peak monthly revenue: ${fmt(peakRevenue)}
+- Latest monthly revenue: ${fmt(latestRevenue)}
+- Revenue vs peak: ${revenueDeclinePct >= 0 ? `+${revenueDeclinePct.toFixed(0)}%` : `${revenueDeclinePct.toFixed(0)}%`}
+- 30d avg daily revenue: ${fmt(snapshot.signals.period30d.avgDailyRevenueNaira)} vs 90d: ${fmt(snapshot.signals.period90d.avgDailyRevenueNaira)}
+
+OPERATIONAL RISK:
+- Active days last 30d: ${snapshot.signals.period30d.activeDays} (platform engagement)
+- Business age: ${snapshot.ageInDays} days (${snapshot.ageInDays < 60 ? "EARLY STAGE — limited history" : snapshot.ageInDays < 90 ? "GROWING — some history" : "ESTABLISHED"})
+- Months of data: ${snapshot.monthlyRevenue.length}
+
+COMPUTED RISK PROFILE:
+- Overall risk score: ${risk.overallRiskScore}/100 (higher = riskier)
+- Concentration risk: ${risk.concentrationRisk}
+- Risk factors: ${risk.riskFactors.length > 0 ? risk.riskFactors.join("; ") : "None identified"}
+
+${snapshot.existingDecision ? `PRIOR ZALYX DECISION: Score ${snapshot.existingDecision.score}/100, ${snapshot.existingDecision.confidence} confidence, offer of ${fmt(snapshot.existingDecision.offerAmountNaira)}` : ""}
+
+PORTFOLIO DEFAULT RATE (via MCP — real Zalyx historical data):
+${defaultRateContext}
+
+As the risk officer:
+1. Where do you DISAGREE with the business analyst? Be specific.
+2. Which risk factors concern you most and why?
+3. What would make you more or less comfortable approving this merchant?
+4. State your risk verdict: LOW RISK / MODERATE RISK / HIGH RISK.
+
+Push back hard where warranted. The business analyst tends to be optimistic.
 `;
 
-    const qwenResponse = await qwenClient.analyzeWithContext(
-      analysisPrompt,
-      JSON.stringify(merchantData, null, 2),
+    // Function calling — Qwen invokes submit_risk_verdict with structured output
+    const response = await qwenClient.chatWithTools(
+      [{ role: "user", content: `Context:\n${JSON.stringify(snapshot, null, 2)}\n\nAnalysis request:\n${prompt}` }],
+      [SUBMIT_RISK_VERDICT_TOOL],
       this.agentName
     );
 
+    // Prefer structured tool output; fall back to computed values
+    const tc = response.toolCall?.name === "submit_risk_verdict"
+      ? (response.toolCall.arguments as any)
+      : null;
+
+    const riskFactors: string[] = tc?.key_risk_factors ?? risk.riskFactors;
+    const overallRiskScore: number = tc?.adjusted_risk_score ?? risk.overallRiskScore;
+    const riskLevel: string = tc?.risk_level ?? (
+      overallRiskScore < 35 ? "LOW" : overallRiskScore < 60 ? "MODERATE" : "HIGH"
+    );
+
     const result: RiskAssessmentResult = {
-      volatilityIndex,
-      concentrationRisk,
-      operationalStability,
+      volatilityIndex: risk.volatilityIndex,
+      concentrationRisk: risk.concentrationRisk,
+      operationalStability: risk.operationalStability,
       riskFactors,
       overallRiskScore,
-      recommendation:
-        overallRiskScore < 40
-          ? "Low risk - approve with standard terms"
-          : overallRiskScore < 70
-            ? "Moderate risk - recommend conservative structure"
-            : "High risk - recommend additional safeguards or rejection",
+      recommendation: riskLevel === "LOW"
+        ? "Low risk — standard terms appropriate"
+        : riskLevel === "MODERATE"
+          ? "Moderate risk — conservative structure and monitoring required"
+          : "High risk — reject or require significant additional safeguards",
     };
 
     const debateMessage: AgentDebateMessage = {
       agentName: this.agentName,
       agentRole: this.agentRole,
       timestamp: new Date().toISOString(),
-      message: qwenResponse.message,
+      message: tc?.challenge_to_business_analyst
+        ? `${response.message}\n\n**Risk verdict (${riskLevel}):** ${tc.challenge_to_business_analyst}`
+        : response.message,
       recommendation: result.recommendation,
-      confidence: 100 - overallRiskScore, // Lower risk = higher confidence in safety
+      confidence: 100 - overallRiskScore,
+      messageType: "challenge",
+      round: 1,
     };
 
     return { result, debateMessage };
   }
 
-  private calculateVolatility(merchantData: MerchantData): number {
-    const incomeTransactions = merchantData.transactions.filter(
-      (t) => t.type === "income"
+  // ── Debate Round 2: Issue final verdict after Business Agent rebuts ──────────
+  async issueVerdict(
+    snapshot: ZalyxMerchantSnapshot,
+    riskResult: RiskAssessmentResult,
+    businessRebuttal: string
+  ): Promise<{ debateMessage: AgentDebateMessage }> {
+    const prompt = `
+You are the Risk Officer issuing your final verdict after the Business Analyst has responded to your challenge.
+
+YOUR INITIAL RISK FINDING:
+- Risk score: ${riskResult.overallRiskScore}/100
+- Risk factors: ${riskResult.riskFactors.length > 0 ? riskResult.riskFactors.join("; ") : "None identified"}
+- Your verdict: "${riskResult.recommendation}"
+
+BUSINESS ANALYST'S REBUTTAL:
+"${businessRebuttal}"
+
+Issue your final position:
+1. ACCEPT any points from the rebuttal that genuinely change your assessment — list them.
+2. MAINTAIN the risk concerns that still hold despite their response — explain why.
+3. State your FINAL RISK VERDICT: LOW / MODERATE / HIGH risk.
+4. If you're willing to approve with conditions, state the specific conditions clearly.
+
+Max 150 words. Be decisive — this is your last word.
+`;
+
+    const response = await qwenClient.chatWithTools(
+      [{ role: "user", content: `Context:\n${JSON.stringify({ snapshot, riskResult }, null, 2)}\n\nAnalysis request:\n${prompt}` }],
+      [SUBMIT_RISK_VERDICT_TOOL],
+      "Risk Assessment Agent (Verdict)"
     );
 
-    if (incomeTransactions.length < 2) return 60; // Unknown volatility is concerning
+    const tc = response.toolCall?.name === "submit_risk_verdict"
+      ? (response.toolCall.arguments as any)
+      : null;
 
-    const amounts = incomeTransactions.map((t) => t.amount);
-    const avg = amounts.reduce((a, b) => a + b, 0) / amounts.length;
-    const variance =
-      amounts.reduce((sum, val) => sum + Math.pow(val - avg, 2), 0) /
-      amounts.length;
-    const stdDev = Math.sqrt(variance);
-    const coefficientOfVariation = stdDev / avg;
+    const verdictSuffix = tc
+      ? `\n\n**Final verdict (${tc.risk_level}):** ${tc.conditions_for_approval?.length
+          ? "Conditions for approval: " + (tc.conditions_for_approval as string[]).join("; ")
+          : "No conditions — I maintain rejection."}`
+      : "";
 
-    // Higher volatility = higher risk
-    return Math.min(100, coefficientOfVariation * 50);
+    return {
+      debateMessage: {
+        agentName: this.agentName,
+        agentRole: "Issuing final risk verdict after reviewing Business Analyst's rebuttal",
+        timestamp: new Date().toISOString(),
+        message: response.message + verdictSuffix,
+        messageType: "verdict",
+        round: 2,
+      },
+    };
   }
 
-  private assessConcentrationRisk(merchantData: MerchantData): string {
-    const incomeTransactions = merchantData.transactions.filter(
-      (t) => t.type === "income"
-    );
+  private assessRisk(
+    snapshot: ZalyxMerchantSnapshot,
+    businessAnalysis: BusinessAnalysisResult
+  ): {
+    overallRiskScore: number;
+    volatilityIndex: number;
+    concentrationRisk: "low" | "medium" | "high";
+    operationalStability: number;
+    riskFactors: string[];
+    receivablesRate: number;
+  } {
+    const riskFactors: string[] = [];
+    let riskScore = 0;
 
-    if (incomeTransactions.length === 0) return "high";
-
-    // Check if a few transactions dominate total income
-    const totalIncome = incomeTransactions.reduce((sum, t) => sum + t.amount, 0);
-    const sorted = [...incomeTransactions].sort((a, b) => b.amount - a.amount);
-
-    const topThreePercent =
-      sorted.slice(0, 3).reduce((sum, t) => sum + t.amount, 0) / totalIncome;
-
-    if (topThreePercent > 0.7) return "high";
-    if (topThreePercent > 0.5) return "medium";
-    return "low";
-  }
-
-  private assessOperationalStability(merchantData: MerchantData): number {
-    const daysSinceRegistration = Math.floor(
-      (new Date().getTime() - new Date(merchantData.registrationDate).getTime()) /
-        (1000 * 60 * 60 * 24)
-    );
-
-    let score = 50;
-
-    // Businesses older than 1 year = more stable
-    if (daysSinceRegistration > 365) score += 20;
-    if (daysSinceRegistration > 730) score += 10;
-
-    // Regular transaction history = stable
-    const avgDaysBetweenTransactions =
-      daysSinceRegistration / Math.max(1, merchantData.transactions.length);
-    if (avgDaysBetweenTransactions < 5) score += 10;
-
-    return Math.min(100, score);
-  }
-
-  private identifyRiskFactors(merchantData: MerchantData): string[] {
-    const factors: string[] = [];
-
-    // Check business age
-    const daysSinceRegistration = Math.floor(
-      (new Date().getTime() - new Date(merchantData.registrationDate).getTime()) /
-        (1000 * 60 * 60 * 24)
-    );
-    if (daysSinceRegistration < 90) {
-      factors.push("New business (less than 3 months)");
+    // 1. Receivables risk
+    const totalRevenue = snapshot.monthlyRevenue.reduce((s, m) => s + m.revenueNaira, 0);
+    const receivablesRate = totalRevenue > 0
+      ? (snapshot.receivables.uncollectedNaira / totalRevenue) * 100
+      : 0;
+    if (receivablesRate > 30) {
+      riskScore += 20;
+      riskFactors.push(`High uncollected receivables (${receivablesRate.toFixed(0)}% of total revenue)`);
+    } else if (receivablesRate > 15) {
+      riskScore += 10;
+      riskFactors.push(`Moderate uncollected receivables (${receivablesRate.toFixed(0)}% of revenue)`);
     }
 
-    // Check for transaction frequency gaps
-    if (merchantData.transactions.length > 0) {
-      const sortedDates = merchantData.transactions
-        .map((t) => new Date(t.date).getTime())
-        .sort((a, b) => a - b);
+    // 2. Revenue volatility
+    const revenues = snapshot.monthlyRevenue.map(m => m.revenueNaira);
+    const mean = revenues.reduce((s, r) => s + r, 0) / revenues.length;
+    const stdDev = Math.sqrt(revenues.reduce((s, r) => s + Math.pow(r - mean, 2), 0) / revenues.length);
+    const volatilityIndex = mean > 0 ? Math.round(Math.min((stdDev / mean) * 100, 100)) : 50;
+    if (volatilityIndex > 60) {
+      riskScore += 15;
+      riskFactors.push(`High revenue volatility (CV: ${volatilityIndex}%) — unpredictable cash flow`);
+    }
 
-      let maxGap = 0;
-      for (let i = 1; i < sortedDates.length; i++) {
-        const gap = sortedDates[i] - sortedDates[i - 1];
-        maxGap = Math.max(maxGap, gap);
+    // 3. Revenue decline
+    if (revenues.length > 1) {
+      const latest = revenues[revenues.length - 1];
+      const peak = Math.max(...revenues);
+      const decline = ((latest - peak) / peak) * 100;
+      if (decline < -50) {
+        riskScore += 20;
+        riskFactors.push(`Revenue down ${Math.abs(decline).toFixed(0)}% from peak — significant decline`);
+      } else if (decline < -25) {
+        riskScore += 10;
+        riskFactors.push(`Revenue down ${Math.abs(decline).toFixed(0)}% from peak`);
       }
-
-      const maxGapDays = Math.ceil(maxGap / (1000 * 60 * 60 * 24));
-      if (maxGapDays > 30) {
-        factors.push(
-          `Extended inactivity period (${maxGapDays} days without transactions)`
-        );
-      }
     }
 
-    // Check for negative profit margins
-    const totalIncome = merchantData.transactions
-      .filter((t) => t.type === "income")
-      .reduce((sum, t) => sum + t.amount, 0);
-    const totalExpenses = merchantData.transactions
-      .filter((t) => t.type === "expense")
-      .reduce((sum, t) => sum + t.amount, 0);
-
-    if (totalExpenses > totalIncome) {
-      factors.push("Expenses exceed income");
+    // 4. Inactivity
+    if (snapshot.signals.period30d.activeDays === 0) {
+      riskScore += 25;
+      riskFactors.push("No platform activity in last 30 days — possible churn or business pause");
+    } else if (snapshot.signals.period30d.activeDays < 5) {
+      riskScore += 10;
+      riskFactors.push(`Low activity (${snapshot.signals.period30d.activeDays} days) in last 30 days`);
     }
 
-    return factors;
-  }
+    // 5. Business age
+    if (snapshot.ageInDays < 60) {
+      riskScore += 15;
+      riskFactors.push(`Early-stage business (${snapshot.ageInDays} days) — limited repayment track record`);
+    } else if (snapshot.ageInDays < 90) {
+      riskScore += 5;
+    }
 
-  private calculateRiskScore(
-    volatility: number,
-    stability: number,
-    riskFactorCount: number
-  ): number {
-    let score = 0;
+    // 6. Low data volume
+    if (snapshot.monthlyRevenue.length < 2) {
+      riskScore += 10;
+      riskFactors.push("Single month of data — impossible to assess trend or seasonality");
+    }
 
-    // Volatility contribution (0-40 points of risk)
-    score += volatility * 0.4;
+    // 7. Low completion rate
+    const completionRate = snapshot.orders.total > 0
+      ? snapshot.orders.completed / snapshot.orders.total
+      : 0;
+    if (completionRate < 0.5) {
+      riskScore += 15;
+      riskFactors.push(`Low order completion rate (${(completionRate * 100).toFixed(0)}%) — collections concern`);
+    }
 
-    // Stability contribution (negative = less stable = more risk)
-    score += (100 - stability) * 0.4;
+    // Concentration risk: single customer concentration
+    const maxMonthCustomers = Math.max(...snapshot.monthlyRevenue.map(m => m.uniqueCustomers));
+    const concentrationRisk: "low" | "medium" | "high" =
+      maxMonthCustomers > 15 ? "low" : maxMonthCustomers > 8 ? "medium" : "high";
+    if (concentrationRisk === "high") {
+      riskScore += 10;
+      riskFactors.push(`Low customer count (max ${maxMonthCustomers}/month) — revenue concentration risk`);
+    }
 
-    // Risk factors contribution (0-20 points of risk)
-    score += Math.min(20, riskFactorCount * 3);
+    // Operational stability: inverse of inactivity
+    const activityRatio = snapshot.signals.period90d.activeDays / 90;
+    const operationalStability = Math.round(activityRatio * 100);
 
-    return Math.min(100, score);
+    return {
+      overallRiskScore: Math.min(riskScore, 100),
+      volatilityIndex,
+      concentrationRisk,
+      operationalStability,
+      riskFactors,
+      receivablesRate,
+    };
   }
 }

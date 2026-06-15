@@ -1,237 +1,324 @@
 # Zalyx Agent Society
 
-**Multi-agent underwriting system for halal merchant financing**
+**Multi-Agent Merchant Underwriting System** — Qwen Cloud Hackathon, Track 3: Agent Society
 
-A collaborative AI system where multiple agents debate, challenge, and negotiate financing decisions for underserved small businesses. Built for the Qwen Cloud Hackathon (Track 3: Agent Society).
+A five-agent debate pipeline that makes smarter, more transparent merchant financing decisions than any single AI call. Built on real anonymized data from [Zalyx](https://zalyx.com), a Nigerian fintech platform serving 700+ merchants.
 
-## Problem
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+[![Powered by Qwen Cloud](https://img.shields.io/badge/AI-Qwen%20Cloud-blue)](https://www.alibabacloud.com/product/machine-learning)
 
-Small business owners in underserved markets lack access to fair capital because:
-- Limited formal financial records
-- Insufficient credit history with institutions
-- Opaque lending criteria (why you're rejected is a mystery)
-- No room for human judgment in automated systems
+---
 
-Current fintech underwriting is a **black box**: AI model says yes or no, merchants get no insight into *why*. This is especially problematic in culturally-sensitive contexts (Islamic finance requires transparency).
+## What it does
 
-## Solution: Multi-Agent Underwriting with Transparency
+Five specialized AI agents debate every financing application, each enriched with live data from a custom **MCP (Model Context Protocol) server**:
 
-Instead of a single AI model making a yes/no decision, multiple specialized agents *debate* before a final recommendation:
+| Agent | Role | MCP Tool Used |
+|---|---|---|
+| 🔍 Data Quality | Validates completeness, flags anomalies | `check_cbn_compliance` |
+| 📈 Business Analysis | Assesses revenue trajectory, health score | `get_industry_benchmarks` |
+| ⚠️ Risk Assessment | **Challenges** the Business Agent's assumptions | `get_sector_default_rate` |
+| 🔄 Debate Round | Business Agent **rebuts**; Risk Agent issues **final verdict** | — |
+| 💰 Financing Structure | Designs Murabaha-compliant terms from GTV | — |
+| 👤 Human Review | Synthesises the full debate → final decision | — |
+
+The system also runs a **single-agent baseline** in parallel — same data, one LLM call — to demonstrate measurable improvement from the multi-agent approach.
+
+---
+
+## Key design decisions
+
+**Murabaha financing (Islamic finance compliant)**
+Zalyx does not lend money. It purchases assets on the merchant's behalf at a disclosed cost price, then sells those assets to the merchant at a fixed sale price. The difference is Zalyx's profit margin — no interest, no compounding, no late fees.
 
 ```
-Merchant Data (Anonymized Transaction Records)
-    ↓
-[Data Quality Agent] — validates data completeness, flags quality issues
-    ↓
-[Business Analysis Agent] — assesses business performance metrics
-    ↓
-[Risk Assessment Agent] — independently evaluates risk factors
-    ↓
-[Financing Structure Agent] — designs compliant financing terms
-    ↓
-[Human Review Agent] — synthesizes debate, produces final recommendation
+Sale price  = % of merchant's avg monthly GTV (risk-tiered)
+Cost price  = sale price × (1 − profit margin)
+Installment = sale price ÷ tenor months
 ```
 
-### Why Agents > Single AI Model
+| Risk tier | GTV offer | Tenor | Profit margin |
+|---|---|---|---|
+| Low (0–35) | 25% of avg monthly GTV | 6 months | 10% |
+| Moderate (35–65) | 15% of avg monthly GTV | 3 months | 15% |
+| High (65–80) | 5% of avg monthly GTV | 2 months | 20% |
+| Very high (80+) | Rejected | — | — |
 
-| Aspect | Single Agent | Multi-Agent |
-|--------|------------|------------|
-| **Transparency** | "Yes or no" | "Agent A recommends conservative terms, Agent B identifies growth opportunity" |
-| **Risk Detection** | May miss edge cases | Debate surfaces blind spots and conflicting signals |
-| **Explainability** | Black box | Clear disagreement trail shows reasoning |
-| **Domain Expertise** | Generic reasoning | Each agent specialized in specific domain |
-| **Fairness & Bias** | One perspective | Multiple perspectives challenge assumptions |
+Affordability cap: monthly installment must be ≤ 20% of avg monthly GTV. If it exceeds that, the sale price is reduced until it fits.
 
-## Demo
+**Conditional debate round**
+The debate round (Stage 3b/3c) only fires when the Business Analyst's health score > 55 AND the Risk Officer's score > 35 — i.e. when agents genuinely disagree. Clear approvals and clear rejections skip it, saving LLM calls.
 
-**Input:** Anonymized merchant transaction records (payment history, frequency, consistency)
+**MCP integration**
+A dedicated MCP server (stdio transport, `@modelcontextprotocol/sdk`) exposes three tools that agents call during reasoning — not just pre-loaded context but live lookups that change what the agents say:
 
-**Output:**
-1. Data quality assessment
-2. Business performance evaluation
-3. Risk analysis report
-4. Financing structure recommendation
-5. **Debate transcript** (showing agent disagreements and reasoning)
-6. Final recommendation for human review
+- `check_cbn_compliance` — blocks applications from CBN watchlist or restricted sectors before underwriting begins
+- `get_industry_benchmarks` — gives the Business Analyst sector-specific GTV averages, active day norms, and completion rate benchmarks to compare this merchant against peers
+- `get_sector_default_rate` — gives the Risk Agent Zalyx's historical default rates for this sector + risk tier, and suggests a minimum Murabaha profit margin
 
-**Example Agent Dialogue:**
-```
-Data Quality Agent: "Data passes quality checks. 95% record completeness."
-
-Business Analysis Agent: "Merchant shows consistent monthly activity 
-over 8+ month period. Revenue trajectory is stable."
-
-Risk Assessment Agent: "Agrees on stability, but flagged: seasonal 
-revenue dip in Q4. Recommend conservative structure with flexibility."
-
-Financing Structure Agent: "Proposes structure with adaptive repayment 
-terms to accommodate seasonal variations."
-
-Human Review: "Approved with quarterly adjustment clauses."
-```
-
-**Key Feature:** Merchants understand *why* they received financing terms, not just a yes/no.
+---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                   Qwen Cloud API                    │
-│  (Qwen Max / Plus with function calling enabled)   │
-└─────────────────────────────────────────────────────┘
-                          ↑
-        ┌─────────────────┴─────────────────┐
-        ↓                                   ↓
-    [Agent                             [Agent
-     Orchestration]                    Reasoning]
-        ↑                                   ↑
-        └─────────────────┬─────────────────┘
-                          ↓
-              ┌───────────────────────┐
-              │   Merchant Data       │
-              │   (Anonymized)        │
-              └───────────────────────┘
-                          ↓
-              ┌───────────────────────┐
-              │   Output: Financing   │
-              │   Recommendation +    │
-              │   Debate Transcript   │
-              └───────────────────────┘
+Browser (React + Vite)
+  │
+  │  SSE stream: POST /api/underwrite/stream
+  │  Parallel:   POST /api/baseline
+  ▼
+Express API (Node.js / TypeScript)
+  │
+  ▼
+Agent Orchestrator
+  │
+  ├─ Stage 1+2 (parallel):
+  │    ├── Data Quality Agent  ──────── MCP: check_cbn_compliance
+  │    └── Business Analysis Agent ──── MCP: get_industry_benchmarks
+  │
+  ├─ Stage 3:
+  │    └── Risk Assessment Agent ─────── MCP: get_sector_default_rate
+  │
+  ├─ Stage 3b/3c (conditional — only when agents disagree):
+  │    ├── Business Analysis Agent (rebuttal)
+  │    └── Risk Assessment Agent (final verdict)
+  │
+  ├─ Stage 4 (skipped if very high risk):
+  │    └── Financing Structure Agent
+  │
+  └─ Stage 5:
+       └── Human Review Agent → Decision
+  │
+  ├── Qwen Cloud API (DashScope, qwen-max, function calling)
+  └── MCP Server (stdio) ← mcp-server/index.ts
+        ├── check_cbn_compliance
+        ├── get_industry_benchmarks
+        └── get_sector_default_rate
 ```
 
-## Tech Stack
+![Architecture diagram](./docs/architecture.svg)
 
-- **Language:** TypeScript / Node.js
-- **LLM:** Qwen (via Qwen Cloud API)
-- **Agent Framework:** LangGraph (for workflow orchestration)
-- **Data:** Merchant transaction records (anonymized)
-- **Infrastructure:** Alibaba Cloud / Qwen Cloud
-- **Frontend:** JSON output + optional CLI visualization
+---
 
-## Getting Started
+## Quickstart (local)
 
 ### Prerequisites
-- Node.js 18+
-- Qwen Cloud account + API key
-- Git
 
-### Installation
+- Node.js 20+
+- A Qwen Cloud API key from [Alibaba Cloud DashScope](https://dashscope-intl.aliyuncs.com)
+
+### 1. Clone and install
 
 ```bash
-git clone https://github.com/yourusername/zalyx-agent-society.git
+git clone https://github.com/alateefah/zalyx-agent-society.git
 cd zalyx-agent-society
-npm install
+
+yarn install
+cd frontend && yarn install && cd ..
 ```
 
-### Configuration
-
-Create a `.env` file:
-```
-QWEN_API_KEY=your_qwen_cloud_api_key
-QWEN_MODEL=qwen-max  # or qwen-plus
-```
-
-### Running the System
+### 2. Configure environment
 
 ```bash
-# Process merchant data and run agent society
-npm run demo
-
-# Output: agent debate transcript + financing recommendation
+cp .env.example .env
 ```
 
-## Project Structure
+Edit `.env`:
+
+```env
+QWEN_API_KEY=your_qwen_cloud_api_key_here
+QWEN_MODEL=qwen-max
+QWEN_API_BASE_URL=https://dashscope-intl.aliyuncs.com/compatible-mode/v1
+PORT=3001
+```
+
+> **No API key?** The system runs in mock mode automatically — all five agents return realistic demo responses. The header shows a pulsing **"Mock mode"** badge so you always know which mode you're in.
+
+### 3. Run
+
+```bash
+yarn dev
+```
+
+Opens:
+- Backend API: http://localhost:3001
+- Frontend UI: http://localhost:5173
+
+---
+
+## Demo merchants
+
+Three real anonymized Zalyx merchants with different risk profiles:
+
+| ID | Business type | Profile | Expected outcome |
+|---|---|---|---|
+| ZALYX-001 | School | Term-fee payment pattern, moderate risk | **Approved** with conditions |
+| ZALYX-002 | Natural products | Small merchant, low receivables | **Requires clarification** |
+| ZALYX-003 | Freelancer | 0 active days (30d), high uncollected receivables | **Rejected** |
+
+ZALYX-001 is the most illustrative for *decision quality*: both approaches may reach approval, but the multi-agent pipeline produces a formal `DebateResolution` record — disputed claims, rebuttal, verdict, and disbursement conditions — rather than a prose paragraph. The term-fee seasonality pattern is explicitly surfaced and cited.
+
+### Benchmark Results (committed — `benchmark/results.md`)
+
+| Metric | Value |
+|---|---|
+| Merchants benchmarked | 3 |
+| Decisions that differed (baseline vs multi-agent) | **3/3** |
+| Debate round fired | **3/3** merchants |
+| Total structured risk factors surfaced | 9 |
+| Avg structured output completeness | **100%** |
+| Avg actionability score | **100/100** |
+| Avg baseline latency | 0.5s |
+| Avg multi-agent latency | 5.6s |
+| Qwen function calls per run | 8 (all 5 agents use structured tool output) |
+| MCP calls per run | 3 (CBN compliance + sector benchmarks + default rate) |
+
+Full per-merchant breakdown: [`benchmark/results.md`](benchmark/results.md) · raw data: [`benchmark/results.json`](benchmark/results.json)
+
+Run yourself: `yarn benchmark`
+
+---
+
+## API Reference
+
+### `POST /api/underwrite/stream`
+
+Run the full 5-agent debate with **live SSE streaming**. Each agent's output is streamed as it completes — no waiting for the full pipeline.
+
+**Body:** `ZalyxMerchantSnapshot` (see `utils/types.ts`)
+
+**Response:** `text/event-stream` — emits `AgentProgressEvent` objects as agents complete, then a final `UnderwritingReport`.
+
+### `POST /api/baseline`
+
+Run the single-agent baseline (for Track 3 comparison).
+
+**Body:** Same `ZalyxMerchantSnapshot`
+
+**Response:** `BaselineReport` with decision, reasoning, and confidence.
+
+### `GET /api/health`
+
+```json
+{ "status": "ok", "mockMode": false, "model": "qwen-max", "timestamp": "..." }
+```
+
+---
+
+## Qwen Cloud integration
+
+### Chat completions
+Standard reasoning for Data Quality and Business Analysis agents:
+
+```typescript
+const response = await client.chat.completions.create({
+  model: "qwen-max",
+  messages: [...],
+  temperature: 0.7,
+});
+```
+
+### Function calling
+Risk Assessment, Financing Structure, and Human Review agents use Qwen function calling to return structured JSON:
+
+```typescript
+const response = await client.chat.completions.create({
+  model: "qwen-max",
+  messages: [...],
+  tools: [SUBMIT_RISK_VERDICT_TOOL],
+  tool_choice: "auto",
+});
+// → response.choices[0].message.tool_calls[0].function.arguments
+```
+
+### MCP server
+The MCP server runs as a stdio child process alongside the Express API. Agents call it via `mcpClient` which manages the lifecycle:
+
+```typescript
+// Data Quality Agent
+const cbn = await mcpClient.checkCbnCompliance({ merchant_id, business_type });
+// → { status: "clear", can_proceed: true, details: "..." }
+
+// Business Analysis Agent
+const bench = await mcpClient.getIndustryBenchmarks({ business_type, merchant_monthly_gtv });
+// → { benchmarks: {...}, merchant_vs_sector: { gtv_assessment: "..." } }
+
+// Risk Assessment Agent
+const dr = await mcpClient.getSectorDefaultRate({ business_type, risk_tier: "moderate" });
+// → { historical_default_rate_pct: 6.4, interpretation: "...", suggested_murabaha_margin_floor: 15 }
+```
+
+All MCP calls degrade gracefully — if the server is unavailable, agents proceed without the extra context rather than failing the request.
+
+---
+
+## Project structure
 
 ```
 zalyx-agent-society/
 ├── agents/
-│   ├── data-quality-agent.ts        # Validates input data
-│   ├── business-analysis-agent.ts   # Analyzes merchant metrics
-│   ├── risk-assessment-agent.ts     # Evaluates risk factors
-│   ├── financing-structure-agent.ts # Designs financing terms
-│   └── human-review-agent.ts        # Compiles recommendations
+│   ├── baseline-agent.ts           # Single-agent baseline (Track 3 comparison)
+│   ├── business-analysis-agent.ts  # MCP: get_industry_benchmarks
+│   ├── data-quality-agent.ts       # MCP: check_cbn_compliance
+│   ├── financing-structure-agent.ts # GTV-based Murabaha structuring
+│   ├── human-review-agent.ts       # Final decision (function calling)
+│   └── risk-assessment-agent.ts    # MCP: get_sector_default_rate
+├── mcp-server/
+│   └── index.ts                    # MCP server (stdio) — 3 underwriting tools
 ├── orchestration/
-│   ├── agent-graph.ts               # LangGraph workflow definition
-│   └── message-types.ts             # Inter-agent communication protocol
-├── data/
-│   ├── sample-merchants/            # Synthetic merchant data examples
-│   └── schemas/                     # Input/output data schemas
+│   └── agent-orchestrator.ts       # Parallel stages, conditional debate, SSE events
 ├── utils/
-│   ├── qwen-client.ts               # Qwen API wrapper
-│   └── formatting.ts                # Output formatting utilities
-├── demo/
-│   └── sample-run.ts                # Example workflow execution
+│   ├── mcp-client.ts               # MCP client singleton
+│   ├── qwen-client.ts              # Qwen Cloud (DashScope) API client
+│   └── types.ts                    # ZalyxMerchantSnapshot + all report types
+├── data/
+│   └── snapshots/                  # Anonymized merchant JSON snapshots
 ├── docs/
-│   ├── ARCHITECTURE.md              # System design overview
-│   └── AGENT_ROLES.md               # Agent responsibilities & interfaces
-├── .env.example
-├── package.json
-└── README.md
+│   └── architecture.svg            # Architecture diagram
+├── frontend/                       # React + Vite UI
+│   └── src/
+│       ├── App.tsx
+│       └── App.css
+├── server.ts                       # Express API + SSE endpoint
+├── Dockerfile
+├── docker-compose.yml
+└── .env.example
 ```
-
-## Data & Proprietary Logic
-
-This project uses **synthetic merchant data** in the public repository. Actual scoring algorithms and underwriting logic are abstractions that interface with proprietary evaluation systems. This ensures:
-- Full transparency into *how agents collaborate*
-- Privacy of competitive scoring methodologies
-- Reproducibility with open synthetic data
-- Clear separation of agent architecture (open) from domain logic (proprietary)
-
-## Real-World Application
-
-This project demonstrates agent-based underwriting for a production fintech platform serving underserved merchant markets. The system is designed to:
-- Replace opaque black-box lending decisions with explainable agent debates
-- Support Shariah-compliant (halal) financing structures
-- Provide transparency to merchants about why they receive certain terms
-- Build credit history from transaction data for underbanked populations
-
-Agent Society is the next phase of this platform:
-1. ✅ Foundational data layer (live)
-2. 🔄 **Agentic underwriting** (this hackathon)
-3. ⏳ Structured financing products (post-hackathon)
-4. ⏳ Credit scoring APIs (future)
-
-## Hackathon Track: Agent Society
-
-This submission demonstrates key requirements for Track 3:
-- **Task Decomposition:** Each agent handles a distinct evaluation domain
-- **Role Specialization:** Agents have specific expertise (data quality, risk, structuring)
-- **Agent Dialogue:** Agents review each other's recommendations and debate
-- **Disagreement Resolution:** Human review agent synthesizes debate into final decision
-- **Multi-Agent Advantage:** Transparent debate produces better decisions than single-agent baseline
-
-## Judging Criteria Alignment
-
-| Criterion | How We Address It |
-|-----------|-----------------|
-| **Technical Depth (30%)** | Multi-agent orchestration, Qwen function calling, LangGraph workflow state management, agent message protocols |
-| **Innovation (30%)** | Novel application of agents to financial decision-making, transparent debate mechanisms, domain-specific agent roles |
-| **Problem Value (25%)** | Real-world problem (transparent lending), scalable architecture, applicable to multiple fintech domains |
-| **Presentation (15%)** | Clear architecture diagram, debate transcript visualization, comprehensive documentation
-
-## Next Steps (Post-Hackathon)
-
-- [ ] Scale to full agent ecosystem (AI CFO, payment flow agents)
-- [ ] Production-grade error handling & monitoring
-- [ ] Merchant-facing dashboard
-- [ ] API for third-party merchant platforms
-- [ ] Regulatory compliance layer (Nigeria fintech rules)
-
-## Contributing
-
-This is a hackathon project. Ideas, issues, and PRs welcome after submission.
-
-## License
-
-MIT License — see [LICENSE](LICENSE) file
-
-## Questions?
-
-- **Hackathon Help:** Qwen Cloud Discord (https://discord.gg/cDEHSV4Qqj)
-- **Agent Architecture:** See `docs/ARCHITECTURE.md`
-- **Technical Issues:** Open an issue in this repository
 
 ---
 
-**Built for Qwen Cloud Hackathon 2026**  
-**Track:** Agent Society | **Status:** Active Development
+## Docker
+
+```bash
+docker compose up --build
+```
+
+App available at http://localhost:3001
+
+---
+
+## Deploy to Alibaba Cloud ECS
+
+```bash
+# On your ECS instance (Ubuntu 22.04):
+curl -fsSL https://get.docker.com | sh
+git clone https://github.com/alateefah/zalyx-agent-society.git
+cd zalyx-agent-society
+echo "QWEN_API_KEY=your_key" > .env
+echo "QWEN_MODEL=qwen-max" >> .env
+docker compose up -d --build
+curl http://localhost:3001/api/health
+```
+
+---
+
+## Hackathon
+
+**Event:** Qwen Cloud Hackathon 2026
+**Track:** Track 3 — Agent Society
+**Deadline:** July 9, 2026 @ 2:00pm PDT
+
+---
+
+## License
+
+MIT — see [LICENSE](./LICENSE)
