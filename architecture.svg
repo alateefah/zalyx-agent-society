@@ -1,0 +1,142 @@
+<svg viewBox="0 0 820 640" xmlns="http://www.w3.org/2000/svg" role="img" font-family="system-ui, -apple-system, sans-serif">
+  <title>Zalyx Agent Society — Architecture Diagram</title>
+  <desc>Five-agent underwriting pipeline: browser SSE to Express API to Agent Orchestrator, with Qwen Cloud function calling and MCP server tools</desc>
+
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#6b7280"/>
+    </marker>
+    <marker id="arrow-teal" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#26C7C3"/>
+    </marker>
+    <marker id="arrow-purple" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#8354AA"/>
+    </marker>
+  </defs>
+
+  <rect width="820" height="640" fill="#0f1117"/>
+
+  <text x="410" y="30" text-anchor="middle" fill="#f1f5f9" font-size="15" font-weight="700" letter-spacing="-0.3">Zalyx Agent Society — Architecture</text>
+  <text x="410" y="48" text-anchor="middle" fill="#6b7280" font-size="11">Track 3: Agent Society · Qwen Cloud Hackathon 2026</text>
+
+  <!-- BROWSER -->
+  <rect x="30" y="70" width="140" height="62" rx="8" fill="#1e293b" stroke="#26C7C3" stroke-width="1.5"/>
+  <text x="100" y="93" text-anchor="middle" fill="#26C7C3" font-size="11" font-weight="700">BROWSER</text>
+  <text x="100" y="109" text-anchor="middle" fill="#94a3b8" font-size="10">React + Vite</text>
+  <text x="100" y="123" text-anchor="middle" fill="#64748b" font-size="9">SSE stream consumer</text>
+
+  <!-- EXPRESS API -->
+  <rect x="240" y="70" width="140" height="62" rx="8" fill="#1e293b" stroke="#26C7C3" stroke-width="1.5"/>
+  <text x="310" y="93" text-anchor="middle" fill="#26C7C3" font-size="11" font-weight="700">EXPRESS API</text>
+  <text x="310" y="109" text-anchor="middle" fill="#94a3b8" font-size="10">Node.js / TypeScript</text>
+  <text x="310" y="123" text-anchor="middle" fill="#64748b" font-size="9">POST /api/underwrite/stream</text>
+
+  <line x1="170" y1="101" x2="238" y2="101" stroke="#26C7C3" stroke-width="1.5" marker-end="url(#arrow-teal)"/>
+  <text x="204" y="93" text-anchor="middle" fill="#26C7C3" font-size="8.5">SSE</text>
+
+  <!-- AGENT ORCHESTRATOR -->
+  <rect x="30" y="165" width="560" height="370" rx="10" fill="#111827" stroke="#334155" stroke-width="1.5" stroke-dasharray="6,3"/>
+  <text x="310" y="185" text-anchor="middle" fill="#475569" font-size="10" font-weight="600" letter-spacing="0.5">AGENT ORCHESTRATOR</text>
+
+  <line x1="310" y1="132" x2="310" y2="163" stroke="#26C7C3" stroke-width="1.5" marker-end="url(#arrow-teal)"/>
+
+  <text x="50" y="208" fill="#475569" font-size="9" font-weight="600">STAGE 1+2 — PARALLEL</text>
+
+  <rect x="45" y="215" width="170" height="52" rx="6" fill="#1e293b" stroke="#6366f1" stroke-width="1.2"/>
+  <text x="130" y="234" text-anchor="middle" fill="#a5b4fc" font-size="10" font-weight="700">🔍 Data Quality</text>
+  <text x="130" y="249" text-anchor="middle" fill="#64748b" font-size="9">submit_data_quality_result</text>
+  <text x="130" y="261" text-anchor="middle" fill="#4b5563" font-size="8.5">MCP: check_cbn_compliance</text>
+
+  <rect x="230" y="215" width="170" height="52" rx="6" fill="#1e293b" stroke="#22c55e" stroke-width="1.2"/>
+  <text x="315" y="234" text-anchor="middle" fill="#86efac" font-size="10" font-weight="700">📈 Business Analysis</text>
+  <text x="315" y="249" text-anchor="middle" fill="#64748b" font-size="9">submit_business_position</text>
+  <text x="315" y="261" text-anchor="middle" fill="#4b5563" font-size="8.5">MCP: get_industry_benchmarks</text>
+
+  <text x="50" y="290" fill="#475569" font-size="9" font-weight="600">STAGE 3</text>
+
+  <rect x="45" y="297" width="210" height="52" rx="6" fill="#1e293b" stroke="#f59e0b" stroke-width="1.2"/>
+  <text x="150" y="316" text-anchor="middle" fill="#fcd34d" font-size="10" font-weight="700">⚠️ Risk Assessment</text>
+  <text x="150" y="331" text-anchor="middle" fill="#64748b" font-size="9">submit_risk_verdict</text>
+  <text x="150" y="343" text-anchor="middle" fill="#4b5563" font-size="8.5">MCP: get_sector_default_rate</text>
+
+  <text x="50" y="372" fill="#475569" font-size="9" font-weight="600">STAGE 3b/3c — CONDITIONAL (health &gt; 55 AND risk &gt; 35)</text>
+
+  <rect x="45" y="379" width="130" height="44" rx="6" fill="#1e293b" stroke="#22c55e" stroke-width="1.2" stroke-dasharray="4,2"/>
+  <text x="110" y="396" text-anchor="middle" fill="#86efac" font-size="9.5" font-weight="700">📈 BA Rebuttal</text>
+  <text x="110" y="411" text-anchor="middle" fill="#64748b" font-size="8.5">Round 2 response</text>
+
+  <rect x="188" y="379" width="130" height="44" rx="6" fill="#1e293b" stroke="#f59e0b" stroke-width="1.2" stroke-dasharray="4,2"/>
+  <text x="253" y="396" text-anchor="middle" fill="#fcd34d" font-size="9.5" font-weight="700">⚠️ Risk Verdict</text>
+  <text x="253" y="411" text-anchor="middle" fill="#64748b" font-size="8.5">Final position</text>
+
+  <rect x="331" y="379" width="130" height="44" rx="6" fill="#1e293b" stroke="#8354AA" stroke-width="1.2"/>
+  <text x="396" y="396" text-anchor="middle" fill="#c4b5fd" font-size="9.5" font-weight="700">⚖️ DebateModerator</text>
+  <text x="396" y="411" text-anchor="middle" fill="#64748b" font-size="8.5">DebateLedger (no LLM)</text>
+
+  <text x="50" y="445" fill="#475569" font-size="9" font-weight="600">STAGE 4</text>
+  <rect x="45" y="452" width="170" height="44" rx="6" fill="#1e293b" stroke="#3b82f6" stroke-width="1.2"/>
+  <text x="130" y="469" text-anchor="middle" fill="#93c5fd" font-size="10" font-weight="700">💰 Financing Structure</text>
+  <text x="130" y="484" text-anchor="middle" fill="#64748b" font-size="8.5">structure_murabaha_offer · Murabaha engine</text>
+
+  <text x="50" y="516" fill="#475569" font-size="9" font-weight="600">STAGE 5</text>
+  <rect x="45" y="523" width="170" height="44" rx="6" fill="#1e293b" stroke="#a78bfa" stroke-width="1.2"/>
+  <text x="130" y="540" text-anchor="middle" fill="#c4b5fd" font-size="10" font-weight="700">👤 Human Review</text>
+  <text x="130" y="555" text-anchor="middle" fill="#64748b" font-size="8.5">issue_underwriting_decision</text>
+
+  <rect x="230" y="452" width="175" height="115" rx="6" fill="#111827" stroke="#334155" stroke-width="1"/>
+  <text x="317" y="471" text-anchor="middle" fill="#475569" font-size="8.5" font-weight="600">REPORT OUTPUTS</text>
+  <text x="245" y="488" fill="#64748b" font-size="8.5">· DataQualityResult</text>
+  <text x="245" y="501" fill="#64748b" font-size="8.5">· BusinessAnalysisResult</text>
+  <text x="245" y="514" fill="#64748b" font-size="8.5">· RiskAssessmentResult</text>
+  <text x="245" y="527" fill="#64748b" font-size="8.5">· FinancingStructureResult</text>
+  <text x="245" y="540" fill="#64748b" font-size="8.5">· DebateLedger (typed claims)</text>
+  <text x="245" y="553" fill="#64748b" font-size="8.5">· DecisionDelta (vs baseline)</text>
+  <text x="245" y="566" fill="#64748b" font-size="8.5">· RunObservability (requestId, timings)</text>
+
+  <!-- QWEN CLOUD -->
+  <rect x="630" y="165" width="158" height="180" rx="10" fill="#1e293b" stroke="#26C7C3" stroke-width="1.5"/>
+  <text x="709" y="186" text-anchor="middle" fill="#26C7C3" font-size="11" font-weight="700">QWEN CLOUD</text>
+  <text x="709" y="201" text-anchor="middle" fill="#475569" font-size="8.5">dashscope-intl.aliyuncs.com</text>
+  <line x1="639" y1="209" x2="779" y2="209" stroke="#1e3a4a" stroke-width="1"/>
+  <text x="709" y="224" text-anchor="middle" fill="#64748b" font-size="9" font-weight="600">qwen-max · temp 0.7</text>
+  <text x="709" y="238" text-anchor="middle" fill="#475569" font-size="8.5">Function calling:</text>
+  <text x="649" y="253" fill="#64748b" font-size="8.5">· submit_data_quality_result</text>
+  <text x="649" y="267" fill="#64748b" font-size="8.5">· submit_business_position</text>
+  <text x="649" y="281" fill="#64748b" font-size="8.5">· submit_risk_verdict</text>
+  <text x="649" y="295" fill="#64748b" font-size="8.5">· structure_murabaha_offer</text>
+  <text x="649" y="309" fill="#64748b" font-size="8.5">· issue_underwriting_decision</text>
+  <text x="709" y="332" text-anchor="middle" fill="#475569" font-size="8.5">Exponential backoff retry</text>
+
+  <line x1="592" y1="290" x2="628" y2="290" stroke="#26C7C3" stroke-width="1.5" marker-end="url(#arrow-teal)"/>
+  <text x="610" y="283" text-anchor="middle" fill="#26C7C3" font-size="8">tool_calls</text>
+
+  <!-- MCP SERVER -->
+  <rect x="630" y="375" width="158" height="130" rx="10" fill="#1e293b" stroke="#8354AA" stroke-width="1.5"/>
+  <text x="709" y="396" text-anchor="middle" fill="#8354AA" font-size="11" font-weight="700">MCP SERVER</text>
+  <text x="709" y="411" text-anchor="middle" fill="#475569" font-size="8.5">stdio transport · child process</text>
+  <line x1="639" y1="417" x2="779" y2="417" stroke="#2d1f47" stroke-width="1"/>
+  <text x="649" y="434" fill="#64748b" font-size="8.5">check_cbn_compliance</text>
+  <text x="649" y="450" fill="#4b5563" font-size="8">  → CBN watchlist check</text>
+  <text x="649" y="466" fill="#64748b" font-size="8.5">get_industry_benchmarks</text>
+  <text x="649" y="482" fill="#4b5563" font-size="8">  → sector GTV averages</text>
+  <text x="649" y="498" fill="#64748b" font-size="8.5">get_sector_default_rate</text>
+
+  <line x1="592" y1="440" x2="628" y2="440" stroke="#8354AA" stroke-width="1.5" marker-end="url(#arrow-purple)"/>
+  <text x="610" y="433" text-anchor="middle" fill="#8354AA" font-size="8">MCP calls</text>
+
+  <!-- BASELINE -->
+  <rect x="630" y="525" width="158" height="52" rx="8" fill="#1e293b" stroke="#475569" stroke-width="1.2" stroke-dasharray="4,2"/>
+  <text x="709" y="545" text-anchor="middle" fill="#94a3b8" font-size="10" font-weight="700">Baseline Agent</text>
+  <text x="709" y="559" text-anchor="middle" fill="#475569" font-size="8.5">1 Qwen call · runs in parallel</text>
+  <text x="709" y="571" text-anchor="middle" fill="#334155" font-size="8">→ DecisionDelta comparison</text>
+
+  <!-- Legend -->
+  <rect x="30" y="608" width="760" height="22" rx="4" fill="#0d1117"/>
+  <rect x="40" y="614" width="20" height="2" fill="#26C7C3"/>
+  <text x="64" y="626" fill="#64748b" font-size="9">SSE / API</text>
+  <rect x="120" y="614" width="20" height="2" fill="#8354AA"/>
+  <text x="144" y="626" fill="#64748b" font-size="9">MCP (stdio)</text>
+  <rect x="310" y="611" width="8" height="8" rx="1" fill="none" stroke="#334155" stroke-dasharray="3,2"/>
+  <text x="322" y="619" fill="#64748b" font-size="9">Conditional (fires when agents disagree)</text>
+  <text x="600" y="626" fill="#475569" font-size="9">All 5 agents use Qwen function calling</text>
+</svg>

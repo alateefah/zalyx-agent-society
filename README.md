@@ -113,6 +113,8 @@ Agent Orchestrator
         └── get_sector_default_rate
 ```
 
+![Architecture diagram](./architecture.svg)
+
 ---
 
 ## Quickstart (local)
