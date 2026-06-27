@@ -36,7 +36,7 @@ export class AgentOrchestrator {
     };
 
     console.log(`\n📊 Starting underwriting for ${snapshot.businessName} (${snapshot.businessType})...`);
-    const requestId = randomUUID();
+    const requestId = `${new Date().toISOString().replace(/[:.]/g, "-")}-${randomUUID()}`;
     const startTime = Date.now();
     const debateTranscript: AgentDebateMessage[] = [];
     const agentTimings: AgentTiming[] = [];
