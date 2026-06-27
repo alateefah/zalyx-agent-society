@@ -118,7 +118,8 @@ export interface FinancingStructureResult {
 
 export interface HumanReviewResult {
   finalRecommendation: "approved" | "rejected" | "requires-clarification";
-  approvalAmount: string;
+  approvalAmount: string;       // formatted display string e.g. "₦271,006"
+  approvedAmountNaira: number;  // raw number for DB storage and calculations
   termsAdjustments: string;
   agentDebateNotes: string;
   reason: string;

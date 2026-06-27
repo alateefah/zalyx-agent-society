@@ -180,6 +180,15 @@ describe("AgentOrchestrator — debate trigger logic", () => {
     expect(report).toBeDefined();
     expect(report.humanReview.finalRecommendation).toBeDefined();
   }, 30_000);
+
+  test("humanReview includes a numeric approvedAmountNaira", async () => {
+    const orchestrator = new AgentOrchestrator();
+    const report = await orchestrator.runUnderwriting(MOCK_SNAPSHOT);
+    expect(typeof report.humanReview.approvedAmountNaira).toBe("number");
+    if (report.humanReview.finalRecommendation === "rejected") {
+      expect(report.humanReview.approvedAmountNaira).toBe(0);
+    }
+  }, 30_000);
 });
 
 // ── Murabaha policy engine integration ───────────────────────────────────────

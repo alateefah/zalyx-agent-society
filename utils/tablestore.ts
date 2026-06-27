@@ -124,14 +124,11 @@ export async function saveMerchantSnapshot(snapshot: ZalyxMerchantSnapshot): Pro
 }
 
 export async function saveUnderwritingDecision(report: UnderwritingReport): Promise<void> {
-  const r = report as unknown as Record<string, unknown>;
-  const humanReview = r["humanReview"] as Record<string, unknown>;
-  const observability = r["observability"] as Record<string, unknown>;
   const row: StoredDecision = {
     merchantId: report.merchantId,
-    requestId: observability["requestId"] as string,
-    decision: humanReview["finalRecommendation"] as string,
-    approvedAmountNaira: (humanReview["approvedAmountNaira"] as number) ?? 0,
+    requestId: report.observability.requestId,
+    decision: report.humanReview.finalRecommendation,
+    approvedAmountNaira: report.humanReview.approvedAmountNaira ?? 0,
     executionTime: report.executionTime,
     createdAt: new Date().toISOString(),
     report,
