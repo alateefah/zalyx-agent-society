@@ -21,6 +21,37 @@ import {
   appendLocalDecision,
 } from "./tablestore-mock-store";
 
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+import TableStore = require("tablestore");
+
+let _client: any = null;
+function client(): any {
+  if (_client) return _client;
+  _client = new TableStore.Client({
+    accessKeyId: process.env.OTS_ACCESS_KEY_ID!,
+    secretAccessKey: process.env.OTS_ACCESS_KEY_SECRET!,
+    endpoint: process.env.OTS_ENDPOINT!,
+    instancename: process.env.OTS_INSTANCE!,
+    maxRetries: 3,
+  });
+  return _client;
+}
+
+// All SDK methods take (params, callback); wrap them as promises.
+function call<T = any>(method: string, params: any): Promise<T> {
+  return new Promise((resolve, reject) => {
+    client()[method](params, (err: any, data: T) => (err ? reject(err) : resolve(data)));
+  });
+}
+
+/** Tablestore row attributes come back as [{ columnName, columnValue }]; flatten to a map. */
+function attrsToMap(row: any): Record<string, any> {
+  const out: Record<string, any> = {};
+  for (const a of row?.attributes ?? []) out[a.columnName] = a.columnValue;
+  for (const pk of row?.primaryKey ?? []) out[pk.name] = pk.value;
+  return out;
+}
+
 // ── Config ────────────────────────────────────────────────────────────────────
 const MERCHANTS_TABLE = process.env.OTS_MERCHANTS_TABLE || "zalyx_merchants";
 const DECISIONS_TABLE = process.env.OTS_DECISIONS_TABLE || "zalyx_decisions";
@@ -171,17 +202,204 @@ export async function listDecisionsByType(
   return listDecisionsByTypeReal(decisionType, limit);
 }
 
-// ── Real Tablestore backend (implemented in Task 3) ──────────────────────────
-/* eslint-disable @typescript-eslint/no-unused-vars */
-async function initRealTablestore(): Promise<void> { throw new Error("real Tablestore not yet implemented"); }
-async function getMerchantSnapshotReal(_id: string): Promise<ZalyxMerchantSnapshot | null> { throw new Error("not impl"); }
-async function listMerchantsReal(): Promise<ZalyxMerchantSnapshot[]> { throw new Error("not impl"); }
-async function saveMerchantSnapshotReal(_s: ZalyxMerchantSnapshot): Promise<void> { throw new Error("not impl"); }
-async function saveUnderwritingDecisionReal(_r: StoredDecision): Promise<void> { throw new Error("not impl"); }
-async function getDecisionsForMerchantReal(_m: string): Promise<UnderwritingReport[]> { throw new Error("not impl"); }
-async function getMerchantDecisionSummariesReal(_m: string): Promise<DecisionSummaryRow[]> { throw new Error("not impl"); }
-async function getDecisionByIdReal(_m: string, _r: string): Promise<{ report: UnderwritingReport; createdAt: string } | null> { throw new Error("not impl"); }
-async function listDecisionsByTypeReal(_d: string, _l: number): Promise<DecisionTypeRow[]> { throw new Error("not impl"); }
+// ── Real Tablestore backend ──────────────────────────────────────────────────
 
-// Suppress unused variable warnings for table/index constants used in Task 3
-void MERCHANTS_TABLE; void DECISIONS_TABLE; void DECISION_INDEX;
+async function tableExists(name: string): Promise<boolean> {
+  const { tableNames } = await call<{ tableNames: string[] }>("listTable", {});
+  return (tableNames ?? []).includes(name);
+}
+
+async function initRealTablestore(): Promise<void> {
+  try {
+    if (!(await tableExists(MERCHANTS_TABLE))) {
+      console.log(`  📦 Creating Tablestore table: ${MERCHANTS_TABLE}`);
+      await call("createTable", {
+        tableMeta: {
+          tableName: MERCHANTS_TABLE,
+          primaryKey: [{ name: "id", type: TableStore.PrimaryKeyType.STRING }],
+        },
+        reservedThroughput: { capacityUnit: { read: 0, write: 0 } },
+        tableOptions: { timeToLive: -1, maxVersions: 1 },
+      });
+    }
+
+    if (!(await tableExists(DECISIONS_TABLE))) {
+      console.log(`  📦 Creating Tablestore table + index: ${DECISIONS_TABLE}`);
+      await call("createTable", {
+        tableMeta: {
+          tableName: DECISIONS_TABLE,
+          primaryKey: [
+            { name: "merchantId", type: TableStore.PrimaryKeyType.STRING },
+            { name: "requestId", type: TableStore.PrimaryKeyType.STRING },
+          ],
+          definedColumn: [
+            { name: "decision", type: TableStore.DefinedColumnType.DCT_STRING },
+            { name: "createdAt", type: TableStore.DefinedColumnType.DCT_STRING },
+            { name: "approvedAmountNaira", type: TableStore.DefinedColumnType.DCT_INTEGER },
+          ],
+        },
+        reservedThroughput: { capacityUnit: { read: 0, write: 0 } },
+        tableOptions: { timeToLive: -1, maxVersions: 1 },
+        indexMetas: [
+          {
+            name: DECISION_INDEX,
+            primaryKey: ["decision", "createdAt"],
+            definedColumn: ["approvedAmountNaira"],
+            indexUpdateMode: TableStore.IndexUpdateMode.IUM_ASYNC_INDEX,
+            indexType: TableStore.IndexType.IT_GLOBAL_INDEX,
+          },
+        ],
+      });
+    }
+
+    await seedMerchantsIfEmpty();
+    console.log("✅ Tablestore ready");
+  } catch (err) {
+    console.error("❌ Tablestore init failed — falling back to mock mode:", err);
+    tablestoreMockMode = true;
+  }
+}
+
+async function seedMerchantsIfEmpty(): Promise<void> {
+  const dir = path.join(process.cwd(), "data/snapshots");
+  if (!fs.existsSync(dir)) return;
+  for (const file of fs.readdirSync(dir).filter((f) => f.endsWith(".json"))) {
+    const snap: ZalyxMerchantSnapshot = JSON.parse(fs.readFileSync(path.join(dir, file), "utf-8"));
+    const existing = await getMerchantSnapshotReal(snap.id);
+    if (!existing) {
+      await saveMerchantSnapshotReal(snap);
+      console.log(`  📥 Seeded merchant: ${snap.id}`);
+    }
+  }
+}
+
+async function getMerchantSnapshotReal(id: string): Promise<ZalyxMerchantSnapshot | null> {
+  const data = await call<any>("getRow", {
+    tableName: MERCHANTS_TABLE,
+    primaryKey: [{ id }],
+    maxVersions: 1,
+  });
+  if (!data?.row?.primaryKey) return null;
+  const map = attrsToMap(data.row);
+  return JSON.parse(map.data) as ZalyxMerchantSnapshot;
+}
+
+async function listMerchantsReal(): Promise<ZalyxMerchantSnapshot[]> {
+  const out: ZalyxMerchantSnapshot[] = [];
+  let start: any = [{ id: TableStore.INF_MIN }];
+  while (start) {
+    const data = await call<any>("getRange", {
+      tableName: MERCHANTS_TABLE,
+      direction: TableStore.Direction.FORWARD,
+      inclusiveStartPrimaryKey: start,
+      exclusiveEndPrimaryKey: [{ id: TableStore.INF_MAX }],
+      limit: 100,
+    });
+    for (const row of data.rows ?? []) out.push(JSON.parse(attrsToMap(row).data));
+    start = data.nextStartPrimaryKey ?? null;
+  }
+  return out;
+}
+
+async function saveMerchantSnapshotReal(snapshot: ZalyxMerchantSnapshot): Promise<void> {
+  await call("putRow", {
+    tableName: MERCHANTS_TABLE,
+    condition: new TableStore.Condition(TableStore.RowExistenceExpectation.IGNORE, null),
+    primaryKey: [{ id: snapshot.id }],
+    attributeColumns: [{ data: JSON.stringify(snapshot) }],
+  });
+}
+
+async function saveUnderwritingDecisionReal(row: StoredDecision): Promise<void> {
+  await call("putRow", {
+    tableName: DECISIONS_TABLE,
+    condition: new TableStore.Condition(TableStore.RowExistenceExpectation.IGNORE, null),
+    primaryKey: [{ merchantId: row.merchantId }, { requestId: row.requestId }],
+    attributeColumns: [
+      { decision: row.decision },
+      { createdAt: row.createdAt },
+      { approvedAmountNaira: TableStore.Long.fromNumber(row.approvedAmountNaira) },
+      { executionTime: row.executionTime },
+      { report: JSON.stringify(row.report) },
+    ],
+  });
+}
+
+async function rangeDecisionsForMerchant(merchantId: string): Promise<Record<string, any>[]> {
+  const rows: Record<string, any>[] = [];
+  let start: any = [{ merchantId }, { requestId: TableStore.INF_MAX }];
+  while (start) {
+    const data = await call<any>("getRange", {
+      tableName: DECISIONS_TABLE,
+      direction: TableStore.Direction.BACKWARD, // newest first
+      inclusiveStartPrimaryKey: start,
+      exclusiveEndPrimaryKey: [{ merchantId }, { requestId: TableStore.INF_MIN }],
+      limit: 100,
+    });
+    for (const row of data.rows ?? []) rows.push(attrsToMap(row));
+    start = data.nextStartPrimaryKey ?? null;
+  }
+  return rows;
+}
+
+async function getDecisionsForMerchantReal(merchantId: string): Promise<UnderwritingReport[]> {
+  return (await rangeDecisionsForMerchant(merchantId)).map((m) => JSON.parse(m.report) as UnderwritingReport);
+}
+
+async function getMerchantDecisionSummariesReal(merchantId: string): Promise<DecisionSummaryRow[]> {
+  return (await rangeDecisionsForMerchant(merchantId)).map((m) => ({
+    merchantId: m.merchantId,
+    requestId: m.requestId,
+    decision: m.decision,
+    createdAt: m.createdAt,
+    approvedAmountNaira: typeof m.approvedAmountNaira?.toNumber === "function" ? m.approvedAmountNaira.toNumber() : Number(m.approvedAmountNaira ?? 0),
+    executionTime: m.executionTime,
+  }));
+}
+
+async function getDecisionByIdReal(
+  merchantId: string,
+  requestId: string
+): Promise<{ report: UnderwritingReport; createdAt: string } | null> {
+  const data = await call<any>("getRow", {
+    tableName: DECISIONS_TABLE,
+    primaryKey: [{ merchantId }, { requestId }],
+    maxVersions: 1,
+  });
+  if (!data?.row?.primaryKey) return null;
+  const map = attrsToMap(data.row);
+  return { report: JSON.parse(map.report) as UnderwritingReport, createdAt: map.createdAt };
+}
+
+async function listDecisionsByTypeReal(
+  decisionType: string,
+  limit: number
+): Promise<DecisionTypeRow[]> {
+  const data = await call<any>("getRange", {
+    tableName: DECISION_INDEX,
+    direction: TableStore.Direction.BACKWARD, // newest createdAt first
+    inclusiveStartPrimaryKey: [
+      { decision: decisionType },
+      { createdAt: TableStore.INF_MAX },
+      { merchantId: TableStore.INF_MAX },
+      { requestId: TableStore.INF_MAX },
+    ],
+    exclusiveEndPrimaryKey: [
+      { decision: decisionType },
+      { createdAt: TableStore.INF_MIN },
+      { merchantId: TableStore.INF_MIN },
+      { requestId: TableStore.INF_MIN },
+    ],
+    limit,
+  });
+  return (data.rows ?? []).map((row: any) => {
+    const m = attrsToMap(row);
+    return {
+      merchantId: m.merchantId,
+      requestId: m.requestId,
+      decision: m.decision,
+      createdAt: m.createdAt,
+      approvedAmountNaira: typeof m.approvedAmountNaira?.toNumber === "function" ? m.approvedAmountNaira.toNumber() : Number(m.approvedAmountNaira ?? 0),
+    };
+  });
+}
