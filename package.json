@@ -10,7 +10,7 @@
     "start": "node dist/server.js",
     "demo": "ts-node demo/sample-run.ts",
     "benchmark": "ts-node benchmark/run.ts",
-    "seed": "ts-node utils/seed.ts",
+    "seed": "ts-node --transpile-only utils/seed.ts",
     "test": "jest",
     "type-check": "tsc --noEmit"
   },
