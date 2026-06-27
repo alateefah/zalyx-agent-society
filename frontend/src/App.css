@@ -33,7 +33,7 @@ body {
   color: var(--text-1);
   min-height: 100vh;
   line-height: 1.55;
-  font-size: 14px;
+  font-size: 16px;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -71,6 +71,7 @@ body {
 .api-badge-mock  { background: rgba(251,191,36,0.08);  border-color: rgba(251,191,36,0.3);  color: #fbbf24; }
 .api-badge-dot   { width: 6px; height: 6px; border-radius: 50%; background: currentColor; animation: pulse-dot 2s infinite; }
 @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+@keyframes spin { to { transform: rotate(360deg); } }
 
 .app-main { flex: 1; padding: 28px 15%; }
 
@@ -143,8 +144,8 @@ body {
   overflow: hidden;
 }
 .pipeline-step {
-  flex: 1; padding: 13px 16px;
-  display: flex; align-items: flex-start; gap: 10px;
+  flex: 1; padding: 11px 10px;
+  display: flex; align-items: flex-start; gap: 8px;
   border-right: 1px solid var(--border);
   color: var(--text-3);
 }
@@ -158,7 +159,7 @@ body {
 }
 .pipeline-step-label { line-height: 1.35; }
 .pipeline-step-name  { font-size: 14px; font-weight: 500; color: var(--text-2); }
-.pipeline-step-desc  { font-size: 14px; color: var(--text-3); margin-top: 1px; }
+.pipeline-step-desc  { font-size: 12px; color: var(--text-3); margin-top: 1px; }
 
 .form-card {
   background: var(--surface);
@@ -173,8 +174,8 @@ body {
 }
 .form-section:last-child { border-bottom: none; }
 .form-section-label {
-  font-size: 14px; font-weight: 600; text-transform: uppercase;
-  letter-spacing: 0.06em; color: var(--text-3); margin-bottom: 14px;
+  font-size: 11px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.08em; color: var(--text-2); margin-bottom: 14px;
 }
 
 /* Tabs */
