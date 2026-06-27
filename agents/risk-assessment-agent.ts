@@ -43,8 +43,12 @@ export class RiskAssessmentAgent {
     } catch (err) {
       console.warn("   ⚠️  MCP default rate unavailable — proceeding without portfolio context");
     }
-    const peakRevenue = Math.max(...revenues);
-    const latestRevenue = revenues[revenues.length - 1];
+    const currentYearMonthPrompt = new Date().toISOString().slice(0, 7);
+    const latestEntryPrompt = snapshot.monthlyRevenue[snapshot.monthlyRevenue.length - 1];
+    const latestIsPartialPrompt = latestEntryPrompt?.month >= currentYearMonthPrompt;
+    const revenuesForPrompt = latestIsPartialPrompt && revenues.length > 2 ? revenues.slice(0, -1) : revenues;
+    const peakRevenue = Math.max(...revenuesForPrompt);
+    const latestRevenue = revenuesForPrompt[revenuesForPrompt.length - 1];
     const revenueDeclinePct = ((latestRevenue - peakRevenue) / peakRevenue) * 100;
 
     const prompt = `
@@ -66,8 +70,9 @@ CREDIT & COLLECTIONS RISK:
 
 REVENUE RISK:
 - Peak monthly revenue: ${fmt(peakRevenue)}
-- Latest monthly revenue: ${fmt(latestRevenue)}
+- Latest complete monthly revenue: ${fmt(latestRevenue)}
 - Revenue vs peak: ${revenueDeclinePct >= 0 ? `+${revenueDeclinePct.toFixed(0)}%` : `${revenueDeclinePct.toFixed(0)}%`}
+${latestIsPartialPrompt ? `- NOTE: ${latestEntryPrompt.month} is the current calendar month and is INCOMPLETE — do NOT use it to assess revenue decline` : ""}
 - 30d avg daily revenue: ${fmt(snapshot.signals.period30d.avgDailyRevenueNaira)} vs 90d: ${fmt(snapshot.signals.period90d.avgDailyRevenueNaira)}
 
 OPERATIONAL RISK:
@@ -232,10 +237,17 @@ Max 150 words. Be decisive — this is your last word.
       riskFactors.push(`High revenue volatility (CV: ${volatilityIndex}%) — unpredictable cash flow`);
     }
 
-    // 3. Revenue decline
-    if (revenues.length > 1) {
-      const latest = revenues[revenues.length - 1];
-      const peak = Math.max(...revenues);
+    // 3. Revenue decline — exclude the current (partial) calendar month from trend
+    const currentYearMonth = new Date().toISOString().slice(0, 7);
+    const latestEntry = snapshot.monthlyRevenue[snapshot.monthlyRevenue.length - 1];
+    const latestIsPartial = latestEntry?.month >= currentYearMonth;
+    const revenuesForTrend = latestIsPartial && revenues.length > 2
+      ? revenues.slice(0, -1)
+      : revenues;
+
+    if (revenuesForTrend.length > 1) {
+      const latest = revenuesForTrend[revenuesForTrend.length - 1];
+      const peak = Math.max(...revenuesForTrend);
       const decline = ((latest - peak) / peak) * 100;
       if (decline < -50) {
         riskScore += 20;

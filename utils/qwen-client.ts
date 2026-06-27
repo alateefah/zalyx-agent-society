@@ -497,7 +497,8 @@ export class QwenClient {
     messages: AgentMessage[],
     tools: any[],
     agentName: string,
-    systemPrompt?: string
+    systemPrompt?: string,
+    forceToolName?: string
   ): Promise<ToolCallResult> {
     this._callCount++;
     if (this.mockMode) {
@@ -519,9 +520,11 @@ export class QwenClient {
         model: this.model,
         messages: allMessages as any,
         tools,
-        tool_choice: "auto",
+        tool_choice: forceToolName
+          ? { type: "function", function: { name: forceToolName } }
+          : "auto",
         temperature: 0.7,
-        max_tokens: 2000,
+        max_tokens: 4000,
       });
 
       const choice = response.choices[0];
@@ -529,13 +532,30 @@ export class QwenClient {
 
       if (toolCalls && toolCalls.length > 0) {
         const tc = toolCalls[0];
+        let parsedArgs: Record<string, unknown> = {};
+        try {
+          parsedArgs = JSON.parse(tc.function.arguments) as Record<string, unknown>;
+        } catch {
+          // Qwen occasionally returns truncated JSON in tool call arguments.
+          // Attempt to salvage a partial object; agents fall back to computed values.
+          console.warn(`   ⚠️  [${agentName}] Tool call JSON truncated — attempting partial parse`);
+          try {
+            // Strip trailing incomplete key/value and close the object
+            const raw = tc.function.arguments.replace(/,?\s*"[^"]*"?\s*:\s*[^,}\]]*$/, "").trimEnd();
+            const closed = raw.endsWith("}") ? raw : raw + "}";
+            parsedArgs = JSON.parse(closed) as Record<string, unknown>;
+          } catch {
+            // Fully unparseable — agents will use their computed fallback values
+            console.warn(`   ⚠️  [${agentName}] Could not recover tool call JSON — using fallback values`);
+          }
+        }
         return {
           message: choice.message.content ?? "",
           agentName,
           timestamp: new Date().toISOString(),
           toolCall: {
             name: tc.function.name,
-            arguments: JSON.parse(tc.function.arguments) as Record<string, unknown>,
+            arguments: parsedArgs,
           },
         };
       }
