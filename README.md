@@ -278,7 +278,12 @@ Filter decisions across all merchants by decision type (e.g. `approved`, `reject
 ### `GET /api/health`
 
 ```json
-{ "status": "ok", "mockMode": false, "model": "qwen-max", "persistence": "tablestore", "timestamp": "..." }
+{
+  "status": "ok",
+  "ai": { "provider": "Qwen Cloud", "model": "qwen-max", "mockMode": false },
+  "database": { "provider": "Alibaba Cloud Tablestore", "instance": null, "mockMode": true },
+  "timestamp": "..."
+}
 ```
 
 ---
