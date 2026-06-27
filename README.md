@@ -265,7 +265,11 @@ Returns a single merchant by ID.
 
 ### `GET /api/merchants/:merchantId/decisions`
 
-Returns all underwriting decisions for a merchant.
+Returns lightweight decision summaries for a merchant (no full report blob).
+
+### `GET /api/merchants/:merchantId/decisions/:requestId`
+
+Returns a single decision (full report + `createdAt`) by composite key.
 
 ### `GET /api/decisions/:merchantId`
 

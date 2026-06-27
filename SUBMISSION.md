@@ -177,7 +177,7 @@ docker compose up -d --build
 curl http://localhost:3001/api/health
 ```
 
-The `Dockerfile` builds a single image containing the Express API, MCP server, and compiled frontend. `docker-compose.yml` wires the service with env-var injection. Health check: `GET /api/health` returns `{ persistence: "tablestore" }` when real Tablestore credentials are active, and `{ persistence: "mock" }` otherwise.
+The `Dockerfile` builds a single image containing the Express API, MCP server, and compiled frontend. `docker-compose.yml` wires the service with env-var injection. Health check: `GET /api/health` reports each layer's provider and mode — `database.provider: "Alibaba Cloud Tablestore"` with `database.mockMode: false` when real Tablestore credentials are active, and `database.mockMode: true` otherwise (likewise `ai.provider: "Qwen Cloud"` / `ai.mockMode`).
 
 ---
 
