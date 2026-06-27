@@ -120,8 +120,64 @@ Full results: [`benchmark/results.md`](benchmark/results.md)
 | AI | Qwen Cloud (qwen-max via DashScope), function calling, SSE |
 | MCP | `@modelcontextprotocol/sdk` v1.29, stdio transport, 3 tools |
 | Backend | Node.js, Express, TypeScript |
-| Frontend | React, Vite, SSE consumer |
+| Frontend | React 19, Vite, react-router-dom, SSE consumer |
+| Persistence | Alibaba Cloud Tablestore (`utils/tablestore.ts`) — mock-first local fallback |
 | Infrastructure | Docker, Alibaba Cloud ECS |
+
+---
+
+## Judging criteria
+
+### Technical Depth (30%)
+
+- **Five-agent pipeline with conditional debate.** Stages 1–5 with a debate round (3b/3c) that only fires on genuine agent disagreement — saving LLM calls on clear cases while ensuring contested applications get full adversarial review.
+- **Qwen function calling on every agent.** All five agents return structured JSON via typed Qwen tool calls (`submit_data_quality_result`, `submit_business_position`, `submit_risk_verdict`, `structure_murabaha_offer`, `issue_underwriting_decision`). No string parsing.
+- **MCP integration.** A dedicated MCP server (stdio, `@modelcontextprotocol/sdk`) exposes three live-lookup tools that agents call during reasoning — not pre-loaded context but dynamic lookups that change what agents say.
+- **Alibaba Cloud Tablestore.** `utils/tablestore.ts` implements a production-grade persistence layer with two tables (`zalyx_merchants`, `zalyx_decisions`) and a global secondary index (`decision_index` on decision + createdAt) for efficient decision-type queries. The client is mock-first: it auto-detects credential presence and falls back to local JSON, so the demo runs credential-free.
+- **Deterministic DebateLedger.** The `DebateModerator` (no LLM call) parses debate transcripts into typed `DebateClaim[]` objects — each with `claimId`, evidence, and resolution type — making agent negotiation machine-readable and auditable.
+
+### Innovation (30%)
+
+- **Agent debate as underwriting infrastructure.** The conditional debate pattern (fire only when agents disagree) is not a demo gimmick — it is a sound architecture for production decisions where false approvals carry real financial cost (₦100k default exposure on a ₦500k offer).
+- **Halal-finance Murabaha engine.** The financing structure is not a loan. Zalyx buys the asset at cost price and sells it at a fixed sale price — no interest, no compounding. The Murabaha engine (`utils/murabaha-engine.ts`) is risk-tier-aware, GTV-anchored, and enforces a 20% installment affordability cap.
+- **Mock-first persistence.** Alibaba Cloud Tablestore activates from environment variables with zero code changes. This pattern lets the same codebase serve local demos, CI, and production without feature flags or mocks embedded in business logic.
+
+### Problem Value (25%)
+
+Zalyx serves 700+ Nigerian merchants. The underwriting challenge described here is real: the same revenue data looks different depending on what you're looking for. A school with ₦2M/month average GTV but only 7 active days looks like churn — until you understand that school term fees are collected twice a year in large batches. A single LLM call does not catch this. A debate surfaces it.
+
+The multi-agent pipeline produces decisions that a compliance officer can stand behind: a formal `DebateResolution` record, typed `DebateLedger` claims, a Murabaha installment schedule, and `RunObservability` for every run. The baseline produces a paragraph.
+
+### Presentation (15%)
+
+- This document.
+- Architecture diagram: `architecture.svg`.
+- Benchmark results: `benchmark/results.md` (committed — reproducible with `yarn benchmark`).
+- Live demo: `docker compose up --build` (see deployment section below).
+
+---
+
+## Alibaba Cloud deployment
+
+**Alibaba Cloud code file (required proof):** `utils/tablestore.ts`
+This file implements the full Tablestore client: table/index provisioning, merchant reads, decision writes, GSI queries by decision type. It is the Alibaba Cloud data layer for the application.
+
+**Tablestore provisioning:** Tables and the `decision_index` GSI are created automatically on first run when `OTS_*` credentials are present. No manual DDL required.
+
+**Deploy target — Dockerfile:**
+
+```bash
+# On Alibaba Cloud ECS (Ubuntu 22.04):
+curl -fsSL https://get.docker.com | sh
+git clone https://github.com/alateefah/zalyx-agent-society.git
+cd zalyx-agent-society
+cp .env.example .env
+# Edit .env: set QWEN_API_KEY and OTS_* vars
+docker compose up -d --build
+curl http://localhost:3001/api/health
+```
+
+The `Dockerfile` builds a single image containing the Express API, MCP server, and compiled frontend. `docker-compose.yml` wires the service with env-var injection. Health check: `GET /api/health` returns `{ persistence: "tablestore" }` when real Tablestore credentials are active, and `{ persistence: "mock" }` otherwise.
 
 ---
 
