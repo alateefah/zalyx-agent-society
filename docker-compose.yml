@@ -7,9 +7,19 @@ services:
     ports:
       - "3001:3001"
     environment:
+      # ── Qwen Cloud (AI) ──
       - QWEN_API_KEY=${QWEN_API_KEY}
       - QWEN_MODEL=${QWEN_MODEL:-qwen-max}
       - QWEN_API_BASE_URL=https://dashscope-intl.aliyuncs.com/compatible-mode/v1
+      # ── Alibaba Cloud Tablestore (persistence) ──
+      # Set these in a .env file next to this compose file on the ECS host.
+      # Leaving them blank runs Tablestore in mock mode (local JSON).
+      - OTS_ENDPOINT=${OTS_ENDPOINT:-}
+      - OTS_INSTANCE=${OTS_INSTANCE:-}
+      - OTS_ACCESS_KEY_ID=${OTS_ACCESS_KEY_ID:-}
+      - OTS_ACCESS_KEY_SECRET=${OTS_ACCESS_KEY_SECRET:-}
+      - OTS_MERCHANTS_TABLE=${OTS_MERCHANTS_TABLE:-zalyx_merchants}
+      - OTS_DECISIONS_TABLE=${OTS_DECISIONS_TABLE:-zalyx_decisions}
       - PORT=3001
       - NODE_ENV=production
     restart: unless-stopped

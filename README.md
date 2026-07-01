@@ -107,13 +107,37 @@ Agent Orchestrator
        └── Human Review Agent → Decision + DecisionDelta + RunObservability
   │
   ├── Qwen Cloud API (DashScope, qwen-max, function calling — all 5 agents)
-  └── MCP Server (stdio) ← mcp-server/index.ts
-        ├── check_cbn_compliance
-        ├── get_industry_benchmarks
-        └── get_sector_default_rate
+  ├── MCP Server (stdio) ← mcp-server/index.ts
+  │     ├── check_cbn_compliance
+  │     ├── get_industry_benchmarks
+  │     └── get_sector_default_rate
+  └── Alibaba Cloud Tablestore (utils/tablestore.ts)
+        ├── zalyx_merchants  (PK: id)
+        └── zalyx_decisions  (PK: merchantId + requestId)
+              └── decision_index GSI (decision, createdAt)
+        Mock-first: no OTS_* → data/snapshots/*.json + data/decisions.local.json
 ```
 
 ![Architecture diagram](./architecture.svg)
+
+---
+
+## Persistence — Alibaba Cloud Tablestore
+
+Decision history and merchant data are stored in **Alibaba Cloud Tablestore** (`utils/tablestore.ts`) — a serverless wide-column store.
+
+| Table | Primary key | Notes |
+|---|---|---|
+| `zalyx_merchants` | `id` | Merchant profiles |
+| `zalyx_decisions` | `merchantId` + `requestId` | Underwriting decisions |
+
+A global secondary index (`decision_index`) on `(decision, createdAt)` allows efficient queries by decision type and recency.
+
+**Mock-first design:** the system detects whether `OTS_ENDPOINT`, `OTS_INSTANCE`, `OTS_ACCESS_KEY_ID`, and `OTS_ACCESS_KEY_SECRET` are all set. If any are missing it falls back automatically:
+- Merchants → `data/snapshots/*.json`
+- Decisions → `data/decisions.local.json`
+
+This means `yarn dev` works with zero Alibaba Cloud credentials for local development and demos. Real Tablestore activates the moment all four env vars are present.
 
 ---
 
@@ -140,18 +164,35 @@ cd frontend && yarn install && cd ..
 cp .env.example .env
 ```
 
-Edit `.env`:
+Edit `.env` — see `.env.example` for the full reference. At minimum:
 
 ```env
+# Qwen Cloud (required for live agent calls)
 QWEN_API_KEY=your_qwen_cloud_api_key_here
 QWEN_MODEL=qwen-max
 QWEN_API_BASE_URL=https://dashscope-intl.aliyuncs.com/compatible-mode/v1
 PORT=3001
+
+# Alibaba Cloud Tablestore (optional — leave blank for mock mode)
+OTS_ENDPOINT=https://<instance>.<region>.ots.aliyuncs.com
+OTS_INSTANCE=<your_instance_name>
+OTS_ACCESS_KEY_ID=
+OTS_ACCESS_KEY_SECRET=
 ```
 
 > **No API key?** The system runs in mock mode automatically — all five agents return realistic demo responses. The header shows a pulsing **"Mock mode"** badge so you always know which mode you're in.
 
-### 3. Run
+> **No Tablestore credentials?** The persistence layer is **mock-first**: with no `OTS_*` credentials set, merchants are read from `data/snapshots/*.json` and decisions are read/written to `data/decisions.local.json`. Set all four `OTS_*` vars to activate a real Tablestore instance — tables `zalyx_merchants` and `zalyx_decisions` are created automatically on first run.
+
+### 3. Seed demo data (optional)
+
+```bash
+yarn seed
+```
+
+Loads the three anonymized demo merchants into the local decision store so the dashboard shows history on first load.
+
+### 4. Run
 
 ```bash
 yarn dev
@@ -214,10 +255,39 @@ Run the single-agent baseline (for Track 3 comparison).
 
 **Response:** `BaselineReport` with decision, reasoning, and confidence.
 
+### `GET /api/merchants`
+
+Returns all merchants (from Tablestore or local snapshots in mock mode).
+
+### `GET /api/merchants/:id`
+
+Returns a single merchant by ID.
+
+### `GET /api/merchants/:merchantId/decisions`
+
+Returns lightweight decision summaries for a merchant (no full report blob).
+
+### `GET /api/merchants/:merchantId/decisions/:requestId`
+
+Returns a single decision (full report + `createdAt`) by composite key.
+
+### `GET /api/decisions/:merchantId`
+
+Alias for merchant decision history.
+
+### `GET /api/decisions?type=<value>`
+
+Filter decisions across all merchants by decision type (e.g. `approved`, `rejected`).
+
 ### `GET /api/health`
 
 ```json
-{ "status": "ok", "mockMode": false, "model": "qwen-max", "timestamp": "..." }
+{
+  "status": "ok",
+  "ai": { "provider": "Qwen Cloud", "model": "qwen-max", "mockMode": false },
+  "database": { "provider": "Alibaba Cloud Tablestore", "instance": null, "mockMode": true },
+  "timestamp": "..."
+}
 ```
 
 ---
@@ -279,13 +349,15 @@ zalyx-agent-society/
 │   ├── mcp-client.ts                # MCP client singleton with clean shutdown
 │   ├── murabaha-engine.ts           # Pure Murabaha math (testable, no side effects)
 │   ├── qwen-client.ts               # Qwen Cloud (DashScope) API client
+│   ├── tablestore.ts                # Alibaba Cloud Tablestore client (mock-first)
 │   └── types.ts                     # All types: snapshot, report, ledger, observability
 ├── benchmark/
 │   ├── run.ts                       # Benchmark runner (yarn benchmark)
 │   ├── results.md                   # Committed benchmark results
 │   └── results.json                 # Raw benchmark data
 ├── data/
-│   └── snapshots/                   # Anonymized merchant JSON snapshots
+│   ├── snapshots/                   # Anonymized merchant JSON snapshots (mock merchants)
+│   └── decisions.local.json         # Local decision store (mock persistence, git-ignored)
 ├── tests/
 │   ├── murabaha.test.ts             # 25 unit tests for Murabaha engine
 │   └── orchestrator.test.ts         # 7 integration tests for the pipeline

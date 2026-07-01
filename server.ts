@@ -9,6 +9,18 @@ import { AgentOrchestrator } from "./orchestration/agent-orchestrator";
 import { BaselineAgent } from "./agents/baseline-agent";
 import { ZalyxMerchantSnapshot, AgentProgressEvent } from "./utils/types";
 import { mcpClient } from "./utils/mcp-client";
+import {
+  initTablestore,
+  tablestoreMockMode,
+  getMerchantSnapshot,
+  listMerchants,
+  saveUnderwritingDecision,
+  saveMerchantSnapshot,
+  getMerchantDecisionSummaries,
+  getDecisionById,
+  getDecisionsForMerchant,
+  listDecisionsByType,
+} from "./utils/tablestore";
 
 const app = express();
 app.use(cors());
@@ -17,14 +29,90 @@ app.use(express.json({ limit: "10mb" }));
 const orchestrator = new AgentOrchestrator();
 const baselineAgent = new BaselineAgent();
 
-// Health check
+// ── Health check ─────────────────────────────────────────────────────────────
 app.get("/api/health", (_req: Request, res: Response) => {
+  const aiMock = !process.env.QWEN_API_KEY || process.env.QWEN_API_KEY === "your_qwen_cloud_api_key_here";
   res.json({
     status: "ok",
-    mockMode: !process.env.QWEN_API_KEY || process.env.QWEN_API_KEY === "your_qwen_cloud_api_key_here",
-    model: process.env.QWEN_MODEL || "qwen-max",
+    ai: {
+      provider: "Qwen Cloud",
+      model: process.env.QWEN_MODEL || "qwen-max",
+      mockMode: aiMock,
+    },
+    database: {
+      provider: "Alibaba Cloud Tablestore",
+      instance: process.env.OTS_INSTANCE || null,
+      mockMode: tablestoreMockMode,
+    },
     timestamp: new Date().toISOString(),
   });
+});
+
+// ── Merchants ─────────────────────────────────────────────────────────────────
+app.get("/api/merchants", async (_req: Request, res: Response) => {
+  try {
+    res.json(await listMerchants());
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || "Failed to list merchants" });
+  }
+});
+
+app.get("/api/merchants/:id", async (req: Request, res: Response) => {
+  try {
+    const snapshot = await getMerchantSnapshot(req.params.id);
+    if (!snapshot) {
+      res.status(404).json({ error: `Merchant ${req.params.id} not found` });
+      return;
+    }
+    res.json(snapshot);
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || "Failed to load merchant" });
+  }
+});
+
+app.get("/api/merchants/:merchantId/decisions", async (req: Request, res: Response) => {
+  try {
+    res.json(await getMerchantDecisionSummaries(req.params.merchantId));
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || "Failed to load decision summaries" });
+  }
+});
+
+app.get("/api/merchants/:merchantId/decisions/:requestId", async (req: Request, res: Response) => {
+  try {
+    const item = await getDecisionById(req.params.merchantId, req.params.requestId);
+    if (!item) {
+      res.status(404).json({ error: `Decision ${req.params.requestId} not found` });
+      return;
+    }
+    res.json({ report: item.report, createdAt: item.createdAt });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || "Failed to load decision" });
+  }
+});
+
+// ── Decision history ──────────────────────────────────────────────────────────
+app.get("/api/decisions/:merchantId", async (req: Request, res: Response) => {
+  try {
+    res.json(await getDecisionsForMerchant(req.params.merchantId));
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || "Failed to load decisions" });
+  }
+});
+
+app.get("/api/decisions", async (req: Request, res: Response) => {
+  const type = (req.query.type as string) || "approved";
+  if (!["approved", "rejected", "requires-clarification"].includes(type)) {
+    res.status(400).json({ error: "type must be approved | rejected | requires-clarification" });
+    return;
+  }
+  try {
+    res.json(
+      await listDecisionsByType(type as "approved" | "rejected" | "requires-clarification", Number(req.query.limit) || 50)
+    );
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || "Failed to query decisions" });
+  }
 });
 
 // Main underwriting endpoint
@@ -41,6 +129,8 @@ app.post("/api/underwrite", async (req: Request, res: Response) => {
 
     console.log(`\n🔄 Underwriting request: ${snapshot.businessName} (${snapshot.monthlyRevenue.length} months of data)`);
     const report = await orchestrator.runUnderwriting(snapshot);
+    await saveMerchantSnapshot(snapshot);
+    await saveUnderwritingDecision(report);
     console.log(`✅ Completed: ${report.humanReview.finalRecommendation.toUpperCase()} — ${report.executionTime}`);
 
     res.json(report);
@@ -73,6 +163,8 @@ app.post("/api/underwrite/stream", async (req: Request, res: Response) => {
   try {
     console.log(`\n🌊 SSE underwriting: ${snapshot.businessName}`);
     const report = await orchestrator.runUnderwriting(snapshot, send);
+    await saveMerchantSnapshot(snapshot);
+    await saveUnderwritingDecision(report);
     send({ type: "done", report });
     console.log(`✅ SSE complete: ${report.humanReview.finalRecommendation.toUpperCase()} — ${report.executionTime}`);
   } catch (error: any) {
@@ -112,19 +204,26 @@ app.get("*", (_req: Request, res: Response) => {
 });
 
 const PORT = parseInt(process.env.PORT || "3001", 10);
-app.listen(PORT, () => {
-  const isMock = !process.env.QWEN_API_KEY || process.env.QWEN_API_KEY === "your_qwen_cloud_api_key_here";
-  console.log(`\n🚀 Zalyx Agent Society API running on http://localhost:${PORT}`);
-  console.log(`   POST /api/underwrite        — Run full agent debate`);
-  console.log(`   POST /api/underwrite/stream — SSE streaming (live agent progress)`);
-  console.log(`   POST /api/baseline          — Single-agent baseline (Track 3 comparison)`);
-  console.log(`   GET  /api/health            — Health check`);
-  if (isMock) {
-    console.log(`   ⚠️  MOCK MODE (add QWEN_API_KEY to .env for real AI)`);
-  } else {
-    console.log(`   ✅ Connected to Qwen Cloud (${process.env.QWEN_MODEL || "qwen-max"})`);
-  }
-});
+
+(async () => {
+  console.log("\n🔧 Initialising services (Qwen Cloud + Alibaba Cloud Tablestore)...");
+  await initTablestore();
+
+  app.listen(PORT, () => {
+    const aiMock = !process.env.QWEN_API_KEY || process.env.QWEN_API_KEY === "your_qwen_cloud_api_key_here";
+    console.log(`\n🚀 Zalyx Agent Society API running on http://localhost:${PORT}`);
+    console.log(`   POST /api/underwrite        — Run full agent debate`);
+    console.log(`   POST /api/underwrite/stream — SSE streaming (live agent progress)`);
+    console.log(`   POST /api/baseline          — Single-agent baseline comparison`);
+    console.log(`   GET  /api/merchants         — List merchants`);
+    console.log(`   GET  /api/merchants/:id     — Load merchant snapshot`);
+    console.log(`   GET  /api/decisions/:id     — Past decisions for a merchant`);
+    console.log(`   GET  /api/decisions?type=   — Query by decision type (secondary index)`);
+    console.log(`   GET  /api/health            — Health check`);
+    console.log(aiMock ? `\n   ⚠️  AI MOCK MODE (add QWEN_API_KEY to .env)` : `\n   ✅ Qwen Cloud (${process.env.QWEN_MODEL || "qwen-max"})`);
+    console.log(tablestoreMockMode ? `   ⚠️  Tablestore MOCK MODE (reading local JSON)` : `   ✅ Alibaba Cloud Tablestore (${process.env.OTS_INSTANCE})`);
+  });
+})();
 
 process.on("SIGTERM", async () => { await mcpClient.disconnect(); process.exit(0); });
 process.on("SIGINT",  async () => { await mcpClient.disconnect(); process.exit(0); });
