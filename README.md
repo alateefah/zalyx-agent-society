@@ -12,6 +12,8 @@ Zalyx Agent Society is a five-agent underwriting workflow for merchant financing
 
 - App: http://139.129.19.5:3001/
 - Health: http://139.129.19.5:3001/api/health
+- Demo video: https://youtu.be/trzoYpEuMYo
+- Alibaba Cloud backend proof video: https://youtu.be/uVF5bOPahHU
 
 The live health check reports Qwen Cloud `mockMode: false` and Alibaba Cloud Tablestore `mockMode: false` on instance `zalyx-agent-db`.
 

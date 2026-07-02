@@ -6,6 +6,8 @@
 
 - App: http://139.129.19.5:3001/
 - Health: http://139.129.19.5:3001/api/health
+- Demo video: https://youtu.be/trzoYpEuMYo
+- Alibaba Cloud backend proof video: https://youtu.be/uVF5bOPahHU
 - Cloud state: Qwen Cloud `mockMode: false`; Alibaba Cloud Tablestore `mockMode: false`; Tablestore instance `zalyx-agent-db`
 
 ---
@@ -164,6 +166,8 @@ The multi-agent pipeline produces decisions that a compliance officer can stand 
 - Benchmark results: `benchmark/results.md` (committed — reproducible with `yarn benchmark`).
 - Live demo: http://139.129.19.5:3001/
 - Health proof: http://139.129.19.5:3001/api/health
+- Demo video: https://youtu.be/trzoYpEuMYo
+- Alibaba Cloud backend proof video: https://youtu.be/uVF5bOPahHU
 
 ---
 
@@ -216,5 +220,9 @@ The agent society pattern is the right architecture for this problem because und
 **Live demo:** http://139.129.19.5:3001/
 
 **Live health:** http://139.129.19.5:3001/api/health
+
+**Demo video:** https://youtu.be/trzoYpEuMYo
+
+**Alibaba Cloud backend proof video:** https://youtu.be/uVF5bOPahHU
 
 **Benchmark results:** See `benchmark/results.md` after running `yarn benchmark`.
