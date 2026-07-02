@@ -6,7 +6,7 @@
  * a markdown comparison table.
  *
  * Usage:
- *   npm run benchmark
+ *   yarn benchmark
  *
  * Output:
  *   benchmark/results.json   — full structured results

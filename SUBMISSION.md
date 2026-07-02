@@ -2,6 +2,12 @@
 
 **Qwen Cloud Hackathon 2026 · Track 3: Agent Society**
 
+**Live deployment**
+
+- App: http://139.129.19.5:3001/
+- Health: http://139.129.19.5:3001/api/health
+- Cloud state: Qwen Cloud `mockMode: false`; Alibaba Cloud Tablestore `mockMode: false`; Tablestore instance `zalyx-agent-db`
+
 ---
 
 ## What we built
@@ -60,8 +66,8 @@ Returns Zalyx's historical default rates for this exact sector + risk tier combi
 
 ### Qwen Cloud API usage
 
-- **Chat completions** — Data Quality and Business Analysis agents
-- **Function calling** — Risk Assessment, Financing Structure, and Human Review agents return structured JSON via Qwen tool calls (`submit_risk_verdict`, `structure_murabaha_offer`, `issue_underwriting_decision`)
+- **DashScope-compatible chat completions** — all model-backed agents call Qwen Cloud through `utils/qwen-client.ts`
+- **Function calling on every agent** — Data Quality, Business Analysis, Risk Assessment, Financing Structure, and Human Review return structured JSON via Qwen tool calls (`submit_data_quality_result`, `submit_business_position`, `submit_risk_verdict`, `structure_murabaha_offer`, `issue_underwriting_decision`)
 - **SSE streaming** — the frontend consumes a live stream of agent progress events as each stage completes, so users watch the debate unfold in real time rather than waiting for a full result
 
 ### Murabaha financing logic
@@ -91,8 +97,8 @@ Both approaches may reach approval. What differs: the single agent produces one 
 **ZALYX-002 (natural products)**
 A low-volume merchant with limited platform history. Single agent often hedges with "requires clarification". The multi-agent pipeline — with MCP sector benchmarks for comparison — surfaces whether the GTV is low for the sector or just low for Zalyx's merchant base. The distinction changes both the decision and the financing offer size.
 
-**ZALYX-003 (freelancer, rejected)**
-Both approaches agree: reject. But the multi-agent pipeline produces a rejection with sector default rates from MCP, specific risk factors cited with naira amounts (₦0 30-day activity, high uncollected receivables ratio), and clear conditions under which the merchant could reapply. A generic rejection is not useful to the merchant or to a compliance audit. A structured rejection is.
+**ZALYX-003 (freelancer)**
+The baseline usually hedges because the profile has weak recent activity and high receivables pressure. The multi-agent pipeline approves only with tight covenants: MCP default-rate evidence, explicit risk factors with naira amounts, and conditions under which the offer remains acceptable. A generic paragraph is not useful to the merchant or to a compliance audit. A structured conditional approval is.
 
 **The measurable efficiency gain (Track 3) — committed results in `benchmark/results.md`**
 
@@ -151,9 +157,10 @@ The multi-agent pipeline produces decisions that a compliance officer can stand 
 ### Presentation (15%)
 
 - This document.
-- Architecture diagram: `architecture.svg`.
+- Architecture diagram: [`architecture.svg`](architecture.svg).
 - Benchmark results: `benchmark/results.md` (committed — reproducible with `yarn benchmark`).
-- Live demo: `docker compose up --build` (see deployment section below).
+- Live demo: http://139.129.19.5:3001/
+- Health proof: http://139.129.19.5:3001/api/health
 
 ---
 
@@ -161,6 +168,10 @@ The multi-agent pipeline produces decisions that a compliance officer can stand 
 
 **Alibaba Cloud code file (required proof):** `utils/tablestore.ts`
 This file implements the full Tablestore client: table/index provisioning, merchant reads, decision writes, GSI queries by decision type. It is the Alibaba Cloud data layer for the application.
+
+**Live deployment:** http://139.129.19.5:3001/
+
+**Live health:** http://139.129.19.5:3001/api/health
 
 **Tablestore provisioning:** Tables and the `decision_index` GSI are created automatically on first run when `OTS_*` credentials are present. No manual DDL required.
 
@@ -177,7 +188,13 @@ docker compose up -d --build
 curl http://localhost:3001/api/health
 ```
 
-The `Dockerfile` builds a single image containing the Express API, MCP server, and compiled frontend. `docker-compose.yml` wires the service with env-var injection. Health check: `GET /api/health` reports each layer's provider and mode — `database.provider: "Alibaba Cloud Tablestore"` with `database.mockMode: false` when real Tablestore credentials are active, and `database.mockMode: true` otherwise (likewise `ai.provider: "Qwen Cloud"` / `ai.mockMode`).
+The `Dockerfile` builds a single image containing the Express API, MCP server, and compiled frontend. `docker-compose.yml` wires the service with env-var injection for Qwen Cloud and Alibaba Cloud Tablestore. Health check: `GET /api/health` reports each layer's provider and mode. The live ECS deployment currently reports:
+
+- `ai.provider: "Qwen Cloud"`
+- `ai.mockMode: false`
+- `database.provider: "Alibaba Cloud Tablestore"`
+- `database.instance: "zalyx-agent-db"`
+- `database.mockMode: false`
 
 ---
 
@@ -193,6 +210,8 @@ The agent society pattern is the right architecture for this problem because und
 
 [github.com/alateefah/zalyx-agent-society](https://github.com/alateefah/zalyx-agent-society)
 
-**Live demo:** Deploy with `docker compose up --build` — see README for one-command ECS setup.
+**Live demo:** http://139.129.19.5:3001/
+
+**Live health:** http://139.129.19.5:3001/api/health
 
 **Benchmark results:** See `benchmark/results.md` after running `yarn benchmark`.

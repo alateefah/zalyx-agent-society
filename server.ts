@@ -197,7 +197,7 @@ app.post("/api/baseline", async (req: Request, res: Response) => {
 });
 
 // Serve React frontend in production
-const frontendDist = path.join(__dirname, "frontend", "dist");
+const frontendDist = path.join(process.cwd(), "frontend", "dist");
 app.use(express.static(frontendDist));
 app.get("*", (_req: Request, res: Response) => {
   res.sendFile(path.join(frontendDist, "index.html"));

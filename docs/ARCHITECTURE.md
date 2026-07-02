@@ -1,178 +1,117 @@
-# Zalyx Agent Society - Architecture
+# Zalyx Agent Society Architecture
 
-## Overview
+## Live System
 
-Zalyx Agent Society implements a multi-agent underwriting system where specialized AI agents collaborate, debate, and negotiate financing decisions for merchant lending.
+- App: http://139.129.19.5:3001/
+- Health: http://139.129.19.5:3001/api/health
 
-## System Architecture
+The deployed service runs one Docker image on Alibaba Cloud ECS. The image
+contains the Express API, MCP stdio server, and compiled React frontend. In the
+live environment, `/api/health` reports Qwen Cloud with `mockMode: false` and
+Alibaba Cloud Tablestore instance `zalyx-agent-db` with `mockMode: false`.
 
-```
-┌─────────────────────────────────────────────────────┐
-│                   Qwen Cloud API                    │
-│  (OpenAI-compatible, function calling enabled)     │
-└─────────────────────────────────────────────────────┘
-                          ↑
-        ┌─────────────────┴─────────────────┐
-        ↓                                   ↓
-    [Agent Orchestrator]            [LangGraph Workflow]
-        (Controls flow)               (State management)
-        ↑                                   ↑
-        └─────────────────┬─────────────────┘
-                          ↓
-          ┌───────────────────────────────┐
-          │    Specialized Agents:        │
-          ├───────────────────────────────┤
-          │ • Data Quality Agent          │
-          │ • Business Analysis Agent     │
-          │ • Risk Assessment Agent       │
-          │ • Financing Structure Agent   │
-          │ • Human Review Agent          │
-          └───────────────────────────────┘
-                          ↑
-              ┌───────────────────────┐
-              │   Merchant Data       │
-              │   (Anonymized)        │
-              └───────────────────────┘
-                          ↓
-              ┌───────────────────────┐
-              │   Output Report:      │
-              │ • Scores              │
-              │ • Debate Transcript   │
-              │ • Final Recommendation│
-              └───────────────────────┘
-```
+The committed visual architecture diagram is [`architecture.svg`](../architecture.svg).
 
-## Workflow Stages
+![System architecture diagram](../architecture.svg)
 
-### Stage 1: Data Quality Assessment
-**Agent:** `DataQualityAgent`
-- Validates merchant data completeness
-- Checks for consistency issues
-- Identifies anomalies (unusual transactions, gaps)
-- Produces: Data quality score (0-100)
+```mermaid
+flowchart LR
+  U["Underwriter"] --> UI["React merchant workspaces"]
+  UI <-->|"REST + SSE"| API["Express API in Docker on Alibaba Cloud ECS"]
+  API --> O["Agent Orchestrator"]
+  API --> TS["Alibaba Cloud Tablestore"]
+  API -. "local fallback" .-> LS["data/snapshots + data/decisions.local.json"]
 
-### Stage 2: Business Analysis
-**Agent:** `BusinessAnalysisAgent`
-- Analyzes revenue trends
-- Calculates business health metrics
-- Evaluates profitability
-- Produces: Business health score (0-100)
-- First recommendation: "Approve/Moderate/Reject"
+  O --> P["Parallel data quality + business analysis"]
+  P --> R["Risk challenge"]
+  R --> G{"Material disagreement?"}
+  G -->|"yes"| D["Business rebuttal + final risk verdict"]
+  G -->|"no"| F["Murabaha structure"]
+  D --> DL["DebateModerator + typed DebateLedger"]
+  DL --> F
+  F --> H["Human review decision"]
 
-### Stage 3: Risk Assessment
-**Agent:** `RiskAssessmentAgent`
-- Independently evaluates risk factors
-- Calculates volatility index
-- Assesses concentration risk
-- **Can disagree with Business Analysis Agent** ← This is the key feature
-- Produces: Risk score (0-100)
-- Second recommendation: "Low risk/Moderate/High risk"
+  P <-->|"DashScope-compatible chat completions + tool calls"| Q["Qwen Cloud"]
+  R <-->|"DashScope-compatible chat completions + tool calls"| Q
+  D <-->|"DashScope-compatible chat completions + tool calls"| Q
+  F <-->|"DashScope-compatible chat completions + tool calls"| Q
+  H <-->|"DashScope-compatible chat completions + tool calls"| Q
+  P <-->|"stdio"| MCP["MCP underwriting tools"]
+  R <-->|"stdio"| MCP
 
-**Debate Point:** If Business Agent says "Healthy" (score 75+) but Risk Agent says "High volatility," the system captures this disagreement for later synthesis.
-
-### Stage 4: Financing Structure
-**Agent:** `FinancingStructureAgent`
-- Takes input from both business and risk analyses
-- Designs financing terms
-- Proposes amount based on revenue × health multiplier × risk adjustment
-- Determines repayment schedule
-- Produces: Proposed amount, terms, payment schedule
-
-### Stage 5: Human Review
-**Agent:** `HumanReviewAgent`
-- Synthesizes all agent outputs
-- Analyzes disagreements
-- Produces final underwriting decision
-- Adjusts terms based on risks identified
-- Outputs: APPROVED / REJECTED / REQUIRES-CLARIFICATION
-
-## Key Design Decisions
-
-### 1. Agent Independence
-Each agent evaluates the merchant independently before seeing other agents' outputs. This prevents bias and ensures diverse perspectives.
-
-### 2. Debate Mechanism
-The `debateTranscript` captures each agent's analysis and recommendation. Conflicts are explicitly noted:
-- "Business Agent recommends approval; Risk Agent flags volatility"
-- These disagreements drive better decision-making
-
-### 3. Staged Evaluation
-Agents run sequentially (not in parallel) so each can see prior context:
-- Data Quality → Business Analysis → Risk → Structure → Human Review
-
-### 4. Proprietary Logic vs. Open Architecture
-- **Open:** Agent framework, orchestration, message passing
-- **Proprietary:** Exact scoring formulas (abstracted as Qwen API calls)
-
-## Data Structures
-
-### Input: MerchantData
-```typescript
-{
-  id: string,
-  businessName: string,
-  businessType: string,
-  registrationDate: string,
-  transactions: [{
-    date: string,
-    amount: number,
-    type: "income" | "expense",
-    description: string
-  }]
-}
+  O --> B["Single-agent Qwen baseline"]
+  B --> C["DecisionDelta comparison"]
+  H --> C
+  C --> API
 ```
 
-### Output: UnderwritingReport
-```typescript
-{
-  merchantId: string,
-  executionTime: string,
-  dataQuality: DataQualityResult,
-  businessAnalysis: BusinessAnalysisResult,
-  riskAssessment: RiskAssessmentResult,
-  financingStructure: FinancingStructureResult,
-  humanReview: HumanReviewResult,
-  debateTranscript: AgentDebateMessage[]
-}
-```
+## Runtime Path
 
-## How Disagreement is Handled
+| Layer | Evidence |
+|---|---|
+| Frontend | React 19 + Vite merchant workspaces, streamed progress, permanent report URLs |
+| API | `server.ts` exposes health, merchant, decision, SSE underwriting, and baseline routes |
+| Agent society | `orchestration/agent-orchestrator.ts` coordinates five specialized agents and conditional debate |
+| Qwen Cloud | `utils/qwen-client.ts` sends DashScope-compatible chat completions with typed tool definitions |
+| MCP | `mcp-server/index.ts` exposes compliance, benchmark, and default-rate tools over stdio |
+| Persistence | `utils/tablestore.ts` provisions and queries Alibaba Cloud Tablestore tables |
+| Deployment | `Dockerfile` and `docker-compose.yml` run the API and built frontend on Alibaba Cloud ECS |
 
-**Example:**
-1. Business Analysis Agent: "Merchant is healthy. Revenue stable. Recommend approval for ₦500K."
-2. Risk Assessment Agent: "Revenue appears stable BUT shows seasonal patterns. Q4 shows 40% dip. Recommend lower amount or flexible terms."
-3. Financing Structure Agent: Proposes ₦350K with seasonal flexibility
-4. Human Review Agent: "Approves ₦400K with Q4 payment flexibility"
+## Staged Orchestration
 
-The system makes better decisions than a single agent because:
-- Risk Agent catches seasonal patterns Business Agent might miss
-- Business Agent's optimism is balanced by Risk Agent's conservatism
-- Final terms reflect both perspectives
+| Stage | Execution | Output |
+|---|---|---|
+| 1 + 2 | Data Quality and Business Analysis run concurrently | Integrity score, compliance result, and sector-relative business position |
+| 3 | Risk Assessment challenges the business position | Typed verdict grounded by an MCP default-rate lookup |
+| 3b + 3c | Runs only when health is above 55 and risk is above 35 | Rebuttal, final verdict, and deterministic DebateLedger |
+| 4 | Skipped at the very-high-risk gate | Murabaha terms with risk-tier pricing and affordability cap |
+| 5 | Human Review synthesizes all evidence | Final decision, conditions, and audit-ready rationale |
 
-## Integration with Qwen Cloud
+The single-agent baseline starts alongside the society run. Its result is
+attached as a `DecisionDelta`, making the quality and latency tradeoff visible
+for the same merchant snapshot.
 
-The system uses Qwen Cloud's OpenAI-compatible API for:
-- Natural language analysis of financial data
-- Generating agent recommendations
-- Synthesizing debate into final decisions
+## Tablestore Model
 
-Each agent calls Qwen with:
-1. System prompt defining their role
-2. Current merchant data
-3. Request for analysis/recommendation
+| Table | Primary key | Purpose |
+|---|---|---|
+| `zalyx_merchants` | `id` | Durable merchant snapshots and workspace recovery |
+| `zalyx_decisions` | `merchantId`, `requestId` | Immutable report and audit envelope |
 
-## Extensibility
+`decision_index` is a global secondary index on `decision` and `createdAt`, used
+for cross-merchant queries by decision type. Merchant history requests retrieve
+projected summaries, while permanent report URLs perform a composite-key point
+read for the full report.
 
-To add new agents:
-1. Create `new-agent.ts` in `/agents` folder
-2. Implement interface with `evaluate()` method
-3. Add to `AgentOrchestrator.runUnderwriting()`
-4. Return `{ result, debateMessage }`
+With missing `OTS_*` credentials, the same interface falls back to
+`data/snapshots/*.json` for merchants and `data/decisions.local.json` for
+decision history. With `OTS_ENDPOINT`, `OTS_INSTANCE`, `OTS_ACCESS_KEY_ID`, and
+`OTS_ACCESS_KEY_SECRET` present, Tablestore tables and the index are created on
+first boot.
 
-Example: Credit History Agent, Market Analysis Agent, Compliance Check Agent, etc.
+## Typed Model Boundary
 
-## Performance
+Every model-backed agent submits a named Qwen tool call. The system does not
+scrape prose for scores or decisions. Tool arguments map into TypeScript result
+contracts, and the final report includes:
 
-- Typical underwriting: 30-60 seconds
-- Bottleneck: Qwen API latency (not local processing)
-- Can be optimized with parallel agent evaluation (currently sequential for clarity)
+- Agent score objects and debate transcript
+- `DebateResolution` and claim-level `DebateLedger`
+- Deterministic `FinancingStructureResult`
+- Baseline `DecisionDelta`
+- `RunObservability` with request ID, model, call counts, timings, and gates
+
+## Failure Handling
+
+- Qwen calls use deterministic mock fallback when credentials are absent.
+- MCP lookups degrade gracefully instead of aborting underwriting.
+- SSE emits explicit error events and closes the response.
+- Decisions are persisted only after a full report is produced.
+- Tablestore startup failure switches the process to local mock persistence.
+
+## Scaling Path
+
+The API and orchestrator are stateless after persistence, so multiple ECS
+instances can share one Tablestore instance. Composite decision keys avoid
+cross-merchant scans, projected history reads reduce response size, and the
+first two model stages already execute concurrently.

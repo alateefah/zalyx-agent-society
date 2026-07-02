@@ -2,28 +2,35 @@
 
 **Multi-Agent Merchant Underwriting System** — Qwen Cloud Hackathon, Track 3: Agent Society
 
-A five-agent debate pipeline that makes smarter, more transparent merchant financing decisions than any single AI call. Built on real anonymized data from [Zalyx](https://zalyx.com), a Nigerian fintech platform serving 700+ merchants.
+Zalyx Agent Society is a five-agent underwriting workflow for merchant financing. It separates data quality, business analysis, risk review, financing structure, and final human review so judges and operators can inspect the decision instead of trusting one opaque model response.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Powered by Qwen Cloud](https://img.shields.io/badge/AI-Qwen%20Cloud-blue)](https://www.alibabacloud.com/product/machine-learning)
 [![CI](https://github.com/alateefah/zalyx-agent-society/actions/workflows/ci.yml/badge.svg)](https://github.com/alateefah/zalyx-agent-society/actions/workflows/ci.yml)
 
+**Live deployment**
+
+- App: http://139.129.19.5:3001/
+- Health: http://139.129.19.5:3001/api/health
+
+The live health check reports Qwen Cloud `mockMode: false` and Alibaba Cloud Tablestore `mockMode: false` on instance `zalyx-agent-db`.
+
 ---
 
 ## What it does
 
-Five specialized AI agents debate every financing application, each enriched with live data from a custom **MCP (Model Context Protocol) server**. Every agent uses **Qwen function calling** to return structured JSON — not parsed prose.
+The system runs a full agent-society review for each merchant snapshot and compares it with a single-agent Qwen baseline. Every model-backed agent uses Qwen Cloud via DashScope-compatible chat completions with typed tool calls, while MCP tools add live compliance, sector benchmark, and portfolio default-rate evidence.
 
 | Agent | Role | MCP Tool Used |
 |---|---|---|
-| 🔍 Data Quality | Validates completeness, flags anomalies | `check_cbn_compliance` |
-| 📈 Business Analysis | Assesses revenue trajectory, health score | `get_industry_benchmarks` |
-| ⚠️ Risk Assessment | **Challenges** the Business Agent's assumptions | `get_sector_default_rate` |
-| 🔄 Debate Round | Business Agent **rebuts**; Risk Agent issues **final verdict** | — |
-| 💰 Financing Structure | Designs Murabaha-compliant terms from GTV | — |
-| 👤 Human Review | Synthesises the full debate → final decision | — |
+| Data Quality | Validates completeness and compliance | `check_cbn_compliance` |
+| Business Analysis | Assesses revenue trajectory and sector fit | `get_industry_benchmarks` |
+| Risk Assessment | Challenges the business case with default-rate evidence | `get_sector_default_rate` |
+| Debate Round | Runs a rebuttal and final verdict when agents disagree | — |
+| Financing Structure | Calculates Murabaha-compliant terms from GTV | — |
+| Human Review | Synthesizes the evidence into a final decision | — |
 
-The system also runs a **single-agent baseline** in parallel — same data, one LLM call — to demonstrate measurable improvement from the multi-agent approach.
+The product is organized around merchant workspaces. Underwriters can search the portfolio, stream a new society run, review lightweight decision history, and reopen a permanent full report at `/merchants/:merchantId/decisions/:requestId`.
 
 ---
 
@@ -80,11 +87,17 @@ When the debate round fires, a deterministic `DebateModerator` parses the transc
 ```
 Browser (React + Vite)
   │
+  │  Merchant workspaces + permanent decision URLs
   │  SSE stream: POST /api/underwrite/stream
   │  Parallel:   POST /api/baseline
   ▼
-Express API (Node.js / TypeScript)
-  │
+Express API (Node.js / TypeScript in Docker on Alibaba Cloud ECS)
+  ├── Alibaba Cloud Tablestore (utils/tablestore.ts)
+  │     ├── zalyx_merchants  (PK: id)
+  │     └── zalyx_decisions  (PK: merchantId + requestId)
+  │           └── decision_index GSI (decision, createdAt)
+  ├── Local mock persistence
+  │     └── no OTS_* → data/snapshots/*.json + data/decisions.local.json
   ▼
 Agent Orchestrator
   │
@@ -106,16 +119,11 @@ Agent Orchestrator
   └─ Stage 5:
        └── Human Review Agent → Decision + DecisionDelta + RunObservability
   │
-  ├── Qwen Cloud API (DashScope, qwen-max, function calling — all 5 agents)
+  ├── Qwen Cloud API (DashScope-compatible chat completions, qwen-max, tool calls)
   ├── MCP Server (stdio) ← mcp-server/index.ts
   │     ├── check_cbn_compliance
   │     ├── get_industry_benchmarks
   │     └── get_sector_default_rate
-  └── Alibaba Cloud Tablestore (utils/tablestore.ts)
-        ├── zalyx_merchants  (PK: id)
-        └── zalyx_decisions  (PK: merchantId + requestId)
-              └── decision_index GSI (decision, createdAt)
-        Mock-first: no OTS_* → data/snapshots/*.json + data/decisions.local.json
 ```
 
 ![Architecture diagram](./architecture.svg)
@@ -202,6 +210,10 @@ Opens:
 - Backend API: http://localhost:3001
 - Frontend UI: http://localhost:5173
 
+Published deployment:
+- App: http://139.129.19.5:3001/
+- Health: http://139.129.19.5:3001/api/health
+
 ---
 
 ## Demo merchants
@@ -285,7 +297,7 @@ Filter decisions across all merchants by decision type (e.g. `approved`, `reject
 {
   "status": "ok",
   "ai": { "provider": "Qwen Cloud", "model": "qwen-max", "mockMode": false },
-  "database": { "provider": "Alibaba Cloud Tablestore", "instance": null, "mockMode": true },
+  "database": { "provider": "Alibaba Cloud Tablestore", "instance": "zalyx-agent-db", "mockMode": false },
   "timestamp": "..."
 }
 ```
@@ -294,7 +306,7 @@ Filter decisions across all merchants by decision type (e.g. `approved`, `reject
 
 ## Qwen Cloud integration
 
-All five agents use `chatWithTools()` with a typed tool definition. Qwen returns a `tool_calls` object; the orchestrator reads `tool_calls[0].function.arguments` as structured JSON:
+All five agents use `chatWithTools()` against Qwen Cloud's DashScope-compatible chat completions endpoint with a typed tool definition. Qwen returns a `tool_calls` object; the orchestrator reads `tool_calls[0].function.arguments` as structured JSON:
 
 ```typescript
 const response = await client.chat.completions.create({
@@ -360,11 +372,14 @@ zalyx-agent-society/
 │   └── decisions.local.json         # Local decision store (mock persistence, git-ignored)
 ├── tests/
 │   ├── murabaha.test.ts             # 25 unit tests for Murabaha engine
-│   └── orchestrator.test.ts         # 7 integration tests for the pipeline
+│   ├── orchestrator.test.ts         # Integration tests for the agent pipeline
+│   └── tablestore.test.ts           # Persistence contract tests
 ├── frontend/                        # React + Vite UI
 │   └── src/
-│       ├── App.tsx                  # SSE consumer + Debate Ledger / Delta / Obs panels
-│       └── App.css
+│       ├── pages/                   # Portfolio, workspace, decision report routes
+│       ├── components/              # Report, merchant, history, processing UI
+│       ├── hooks/                   # Merchant, underwriting, health hooks
+│       └── utils/                   # API client and constants
 ├── .github/
 │   └── workflows/ci.yml             # CI: type-check, frontend build, docker build
 ├── server.ts                        # Express API + SSE endpoint
@@ -382,9 +397,10 @@ yarn test
 ```
 
 - `tests/murabaha.test.ts` — 25 unit tests: risk tier selection, GTV pricing, affordability cap, installment math
-- `tests/orchestrator.test.ts` — 7 integration tests: pipeline completes, debate fires/skips, Stage 4 skip, all report fields present
+- `tests/orchestrator.test.ts` — integration tests for pipeline completion, debate gates, streaming progress, and report contracts
+- `tests/tablestore.test.ts` — persistence tests for local fallback and Tablestore-shaped decision access
 
-32/32 passing. Jest exits cleanly — `afterAll()` closes the MCP stdio child process explicitly (no `forceExit` needed).
+Jest exits cleanly because `afterAll()` closes the MCP stdio child process explicitly.
 
 ---
 
@@ -394,7 +410,9 @@ yarn test
 docker compose up --build
 ```
 
-App available at http://localhost:3001. Docker build is verified on every push via GitHub Actions.
+Local Docker app: http://localhost:3001. Docker build is verified on every push via GitHub Actions.
+
+Published ECS app: http://139.129.19.5:3001/.
 
 ---
 
@@ -407,9 +425,27 @@ git clone https://github.com/alateefah/zalyx-agent-society.git
 cd zalyx-agent-society
 echo "QWEN_API_KEY=your_key" > .env
 echo "QWEN_MODEL=qwen-max" >> .env
+echo "OTS_ENDPOINT=https://<instance>.<region>.ots.aliyuncs.com" >> .env
+echo "OTS_INSTANCE=zalyx-agent-db" >> .env
+echo "OTS_ACCESS_KEY_ID=your_access_key_id" >> .env
+echo "OTS_ACCESS_KEY_SECRET=your_access_key_secret" >> .env
 docker compose up -d --build
 curl http://localhost:3001/api/health
 ```
+
+The deployed health response should show:
+
+- `ai.provider`: `Qwen Cloud`
+- `ai.mockMode`: `false`
+- `database.provider`: `Alibaba Cloud Tablestore`
+- `database.instance`: `zalyx-agent-db`
+- `database.mockMode`: `false`
+
+Hackathon evidence files:
+
+- [`utils/qwen-client.ts`](utils/qwen-client.ts) — Qwen Cloud via DashScope-compatible chat completions and tool calls
+- [`utils/tablestore.ts`](utils/tablestore.ts) — Alibaba Cloud Tablestore persistence
+- [`Dockerfile`](Dockerfile) — single-image Docker deployment for Alibaba Cloud ECS
 
 ---
 
