@@ -19,7 +19,7 @@ export function ProcessingView({ merchantId, label, isMock, liveMessages }: Prop
           <div className="processing-merchant">{merchantId}</div>
           <div className="processing-current">
             {label}
-            {isMock && " · mock mode"}
+            {isMock && " · local decision store"}
           </div>
         </div>
       </div>

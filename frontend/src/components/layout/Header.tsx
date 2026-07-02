@@ -76,7 +76,7 @@ export function Header({ isMock, breadcrumbs }: Props) {
         {isMock !== null && isMock !== undefined && (
           <span className={`api-badge ${isMock ? "api-badge-mock" : "api-badge-live"}`}>
             <span className="api-badge-dot" />
-            {isMock ? "Mock mode" : "Live · Qwen + Tablestore"}
+            {isMock ? "Local decisions" : "Live · Qwen + Tablestore"}
           </span>
         )}
       </div>

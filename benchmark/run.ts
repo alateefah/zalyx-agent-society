@@ -22,6 +22,7 @@ dotenv.config();
 import { AgentOrchestrator } from "../orchestration/agent-orchestrator";
 import { BaselineAgent } from "../agents/baseline-agent";
 import { mcpClient } from "../utils/mcp-client";
+import { assertQwenConfigured } from "../utils/qwen-client";
 import { ZalyxMerchantSnapshot, UnderwritingReport, BaselineReport } from "../utils/types";
 
 // ── Load merchant snapshots ───────────────────────────────────────────────────
@@ -201,8 +202,7 @@ async function benchmarkMerchant(
 // ── Markdown table ────────────────────────────────────────────────────────────
 
 function toMarkdownTable(rows: BenchmarkRow[]): string {
-  const isMock = !process.env.QWEN_API_KEY || process.env.QWEN_API_KEY === "your_qwen_cloud_api_key_here";
-  const mode = isMock ? "Mock Mode" : "Live AI (Qwen Cloud)";
+  const mode = "Live AI (Qwen Cloud)";
 
   const lines: string[] = [];
   lines.push(`# Zalyx Agent Society — Benchmark Results`);
@@ -302,8 +302,8 @@ async function main() {
   console.log("\n🏁 Zalyx Agent Society — Benchmark Runner");
   console.log("==========================================");
 
-  const isMock = !process.env.QWEN_API_KEY || process.env.QWEN_API_KEY === "your_qwen_cloud_api_key_here";
-  console.log(`Mode: ${isMock ? "⚠️  MOCK (no Qwen API key)" : "✅ Live AI (Qwen Cloud)"}`);
+  assertQwenConfigured();
+  console.log("Mode: ✅ Live AI (Qwen Cloud)");
 
   const snapshots = loadSnapshots();
   console.log(`Merchants: ${snapshots.map((s) => s.id).join(", ")}`);
@@ -323,7 +323,7 @@ async function main() {
   fs.mkdirSync(outDir, { recursive: true });
 
   const jsonPath = path.join(outDir, "results.json");
-  fs.writeFileSync(jsonPath, JSON.stringify({ runDate: new Date().toISOString(), mode: isMock ? "mock" : "live", results }, null, 2));
+  fs.writeFileSync(jsonPath, JSON.stringify({ runDate: new Date().toISOString(), mode: "live", results }, null, 2));
   console.log(`\n📄 JSON results → ${jsonPath}`);
 
   const mdPath = path.join(outDir, "results.md");

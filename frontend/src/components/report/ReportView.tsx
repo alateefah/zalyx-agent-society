@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import { ChevronDown } from "lucide-react";
 import { AgentCard } from "./AgentCard";
-import { fmt } from "../../utils/format";
+import { fmt, fmtDate, fmtTime } from "../../utils/format";
 import type { UnderwritingReport, BaselineReport } from "../../types";
 
 interface Props {
@@ -43,6 +43,7 @@ export function ReportView({ report, baseline, isMock, merchantId, onBack }: Pro
   const DecisionIcon  = decision === "approved" ? CheckCircle2 : decision === "rejected" ? XCircle : Clock;
   const decisionLabel = decision === "approved" ? "Approved" : decision === "rejected" ? "Rejected" : "Requires clarification";
   const offerRange = report.financingStructure.offerRange ?? report.humanReview.approvedRange;
+  const snapshot = report.financialSnapshot;
 
   const riskColor =
     report.riskAssessment.overallRiskScore > 60
@@ -102,7 +103,7 @@ export function ReportView({ report, baseline, isMock, merchantId, onBack }: Pro
           <div className="decision-label">{decisionLabel}</div>
           <div className="decision-sub">
             {merchantId} · {report.executionTime} · {report.debateTranscript.length} agent inputs
-            {isMock && <span className="mock-badge"> · mock mode</span>}
+            {isMock && <span className="mock-badge"> · local decision store</span>}
           </div>
         </div>
         <div className="decision-amount">{report.humanReview.approvalAmount}</div>
@@ -112,6 +113,52 @@ export function ReportView({ report, baseline, isMock, merchantId, onBack }: Pro
 
         {/* Left: scores */}
         <div className="scores-column">
+
+          {/* Financial snapshot used */}
+          {snapshot && (
+            <div className="score-card">
+              <div className="score-card-header">
+                <div className="score-card-title"><Info size={14} color="#0f766e" /> Data snapshot used</div>
+                <div style={{ fontSize: 10, color: "var(--text-muted)", fontFamily: "monospace" }}>
+                  {snapshot.snapshotHash}
+                </div>
+              </div>
+              <div className="score-rows">
+                <div className="score-row">
+                  <span className="score-row-label">Captured</span>
+                  <span className="score-row-value">{fmtDate(snapshot.capturedAt)} {fmtTime(snapshot.capturedAt)}</span>
+                </div>
+                <div className="score-row">
+                  <span className="score-row-label">Revenue window</span>
+                  <span className="score-row-value">{snapshot.revenueMonths.join(", ") || "—"}</span>
+                </div>
+                <div className="score-row">
+                  <span className="score-row-label">Orders</span>
+                  <span className="score-row-value">{snapshot.completedOrders}/{snapshot.totalOrders} completed</span>
+                </div>
+                <div className="score-row">
+                  <span className="score-row-label">Uncollected receivables</span>
+                  <span className="score-row-value">{fmt(snapshot.uncollectedReceivablesNaira)}</span>
+                </div>
+                <div className="score-row">
+                  <span className="score-row-label">Active days</span>
+                  <span className="score-row-value">{snapshot.activeDays30d} / 30 · {snapshot.activeDays90d} / 90</span>
+                </div>
+                <div className="score-row">
+                  <span className="score-row-label">Avg monthly revenue</span>
+                  <span className="score-row-value">{fmt(snapshot.avgMonthlyRevenueNaira)}</span>
+                </div>
+                {snapshot.existingScore != null && (
+                  <div className="score-row">
+                    <span className="score-row-label">Score on record</span>
+                    <span className="score-row-value">
+                      {snapshot.existingScore}/100 · Tier {snapshot.existingTier ?? "—"}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Data Quality */}
           <div className="score-card">
@@ -310,7 +357,6 @@ export function ReportView({ report, baseline, isMock, merchantId, onBack }: Pro
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto" }}>
                   <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
                     {report.observability.totalQwenCalls}q · {report.observability.totalMcpCalls}m · {report.observability.agentTimings.length} stages
-                    {report.observability.mockMode && <span style={{ color: "#b45309" }}> · mock</span>}
                   </span>
                   <ChevronDown size={12} color="var(--text-muted)" style={{ transform: obsOpen ? "rotate(180deg)" : "none", transition: "transform 0.2s" }} />
                 </div>

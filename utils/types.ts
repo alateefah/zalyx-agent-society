@@ -144,6 +144,25 @@ export interface HumanReviewResult {
   reason: string;
 }
 
+export interface FinancialSnapshotSummary {
+  capturedAt: string;              // When this underwriting run captured the input
+  latestRevenueMonth?: string;     // Latest month represented in monthlyRevenue
+  revenueMonths: string[];
+  snapshotHash: string;            // Stable fingerprint of the merchant input
+  businessAgeDays: number;
+  totalOrders: number;
+  completedOrders: number;
+  outstandingOrders: number;
+  uncollectedReceivablesNaira: number;
+  activeDays30d: number;
+  avgDailyRevenue30dNaira: number;
+  activeDays90d: number;
+  avgMonthlyRevenueNaira: number;
+  existingScore?: number;
+  existingTier?: string;
+  existingScoreAsOfDate?: string;
+}
+
 // Agent Debate Message
 export interface AgentDebateMessage {
   agentName: string;
@@ -249,7 +268,7 @@ export interface AgentTiming {
  */
 export interface RunObservability {
   requestId: string;            // UUID for this underwriting run
-  mockMode: boolean;            // True if running without a Qwen API key
+  mockMode: boolean;            // Backward-compatible field; runtime Qwen calls are never mocked
   model: string;                // e.g. "qwen-max"
   totalQwenCalls: number;       // Across all agents
   totalMcpCalls: number;        // Across all agents
@@ -286,6 +305,7 @@ export type IntermediateReport = Omit<UnderwritingReport, "humanReview" | "obser
 export interface UnderwritingReport {
   merchantId: string;
   executionTime: string;
+  financialSnapshot: FinancialSnapshotSummary;
   dataQuality: DataQualityResult;
   businessAnalysis: BusinessAnalysisResult;
   riskAssessment: RiskAssessmentResult;

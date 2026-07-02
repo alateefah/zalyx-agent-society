@@ -1,4 +1,4 @@
-import { randomUUID } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import {
   ZalyxMerchantSnapshot,
   UnderwritingReport,
@@ -9,6 +9,7 @@ import {
   DecisionDelta,
   AgentTiming,
   RunObservability,
+  FinancialSnapshotSummary,
 } from "../utils/types";
 import { DataQualityAgent } from "../agents/data-quality-agent";
 import { BusinessAnalysisAgent } from "../agents/business-analysis-agent";
@@ -18,6 +19,54 @@ import { HumanReviewAgent } from "../agents/human-review-agent";
 import { BaselineAgent } from "../agents/baseline-agent";
 import { debateModerator } from "../agents/debate-moderator";
 import { qwenClient } from "../utils/qwen-client";
+
+function stableSerialize(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableSerialize).join(",")}]`;
+  if (value && typeof value === "object") {
+    const obj = value as Record<string, unknown>;
+    return `{${Object.keys(obj)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableSerialize(obj[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+}
+
+function buildFinancialSnapshotSummary(
+  snapshot: ZalyxMerchantSnapshot,
+  capturedAt: string
+): FinancialSnapshotSummary {
+  const revenueMonths = snapshot.monthlyRevenue.map((m) => m.month).sort();
+  const averageMonthlyRevenueNaira = snapshot.monthlyRevenue.length
+    ? Math.round(
+      snapshot.monthlyRevenue.reduce((sum, month) => sum + month.revenueNaira, 0) /
+        snapshot.monthlyRevenue.length
+    )
+    : 0;
+  const snapshotHash = createHash("sha256")
+    .update(stableSerialize(snapshot))
+    .digest("hex")
+    .slice(0, 16);
+
+  return {
+    capturedAt,
+    latestRevenueMonth: revenueMonths.at(-1),
+    revenueMonths,
+    snapshotHash,
+    businessAgeDays: snapshot.ageInDays,
+    totalOrders: snapshot.orders.total,
+    completedOrders: snapshot.orders.completed,
+    outstandingOrders: snapshot.orders.outstanding,
+    uncollectedReceivablesNaira: snapshot.receivables.uncollectedNaira,
+    activeDays30d: snapshot.signals.period30d.activeDays,
+    avgDailyRevenue30dNaira: snapshot.signals.period30d.avgDailyRevenueNaira,
+    activeDays90d: snapshot.signals.period90d.activeDays,
+    avgMonthlyRevenueNaira: averageMonthlyRevenueNaira,
+    existingScore: snapshot.existingDecision?.score,
+    existingTier: snapshot.existingDecision?.tier,
+    existingScoreAsOfDate: snapshot.existingDecision?.asOfDate,
+  };
+}
 
 export class AgentOrchestrator {
   private dataQualityAgent = new DataQualityAgent();
@@ -36,7 +85,9 @@ export class AgentOrchestrator {
     };
 
     console.log(`\n📊 Starting underwriting for ${snapshot.businessName} (${snapshot.businessType})...`);
-    const requestId = `${new Date().toISOString().replace(/[:.]/g, "-")}-${randomUUID()}`;
+    const capturedAt = new Date().toISOString();
+    const requestId = `${capturedAt.replace(/[:.]/g, "-")}-${randomUUID()}`;
+    const financialSnapshot = buildFinancialSnapshotSummary(snapshot, capturedAt);
     const startTime = Date.now();
     const debateTranscript: AgentDebateMessage[] = [];
     const agentTimings: AgentTiming[] = [];
@@ -225,6 +276,7 @@ export class AgentOrchestrator {
     const intermediateReport: import("../utils/types").IntermediateReport = {
       merchantId: snapshot.id,
       executionTime: "",
+      financialSnapshot,
       dataQuality,
       businessAnalysis,
       riskAssessment,
@@ -325,6 +377,7 @@ export class AgentOrchestrator {
     return {
       merchantId: snapshot.id,
       executionTime,
+      financialSnapshot,
       dataQuality,
       businessAnalysis,
       riskAssessment,

@@ -101,8 +101,8 @@ Express API (Node.js / TypeScript in Docker on Alibaba Cloud ECS)
   │     ├── zalyx_merchants  (PK: id)
   │     └── zalyx_decisions  (PK: merchantId + requestId)
   │           └── decision_index GSI (decision, createdAt)
-  ├── Local mock persistence
-  │     └── no OTS_* → data/snapshots/*.json + data/decisions.local.json
+  ├── Local file storage
+  │     └── local development → data/snapshots + data/decisions.local.json
   ▼
 Agent Orchestrator
   │
@@ -137,7 +137,7 @@ Agent Orchestrator
 
 ## Persistence — Alibaba Cloud Tablestore
 
-Decision history and merchant data are stored in **Alibaba Cloud Tablestore** (`utils/tablestore.ts`) — a serverless wide-column store.
+Merchant table data is stored in **Alibaba Cloud Tablestore** (`utils/tablestore.ts`) — a serverless wide-column store. Decision history writes to Tablestore when `OTS_*` is configured, or to the local JSON decision store during local development.
 
 | Table | Primary key | Notes |
 |---|---|---|
@@ -146,11 +146,11 @@ Decision history and merchant data are stored in **Alibaba Cloud Tablestore** (`
 
 A global secondary index (`decision_index`) on `(decision, createdAt)` allows efficient queries by decision type and recency.
 
-**Mock-first design:** the system detects whether `OTS_ENDPOINT`, `OTS_INSTANCE`, `OTS_ACCESS_KEY_ID`, and `OTS_ACCESS_KEY_SECRET` are all set. If any are missing it falls back automatically:
-- Merchants → `data/snapshots/*.json`
-- Decisions → `data/decisions.local.json`
+**Runtime data model:** merchant snapshots are input data. Local development uses `DATA_BACKEND=local`: the API loads the three default demo merchants from `data/snapshots/*.json`, saves custom merchant snapshots back into that directory, calls Qwen Cloud for underwriting, and stores decisions in `data/decisions.local.json`.
 
-This means `yarn dev` works with zero Alibaba Cloud credentials for local development and demos. Real Tablestore activates the moment all four env vars are present.
+On Alibaba ECS, use `DATA_BACKEND=tablestore` with the four `OTS_*` values. A confirmed deployment refresh can delete/recreate the merchant and decision tables, preload the three demo merchants from `data/snapshots/*.json`, then store new underwriting decisions in `zalyx_decisions`.
+
+**Decision storage:** `DECISION_STORE=auto` writes decisions to Tablestore when `DATA_BACKEND=tablestore` and OTS is configured; otherwise it writes to `data/decisions.local.json`. Set `DECISION_STORE=local` to force local decision history during development.
 
 ---
 
@@ -186,24 +186,40 @@ QWEN_MODEL=qwen-max
 QWEN_API_BASE_URL=https://dashscope-intl.aliyuncs.com/compatible-mode/v1
 PORT=3001
 
-# Alibaba Cloud Tablestore (optional — leave blank for mock mode)
+# Alibaba Cloud Tablestore (optional locally; required for cloud merchant table)
+DATA_BACKEND=local
 OTS_ENDPOINT=https://<instance>.<region>.ots.aliyuncs.com
 OTS_INSTANCE=<your_instance_name>
 OTS_ACCESS_KEY_ID=
 OTS_ACCESS_KEY_SECRET=
+DECISION_STORE=auto
+LOCAL_MERCHANTS_DIR=data/snapshots
+LOCAL_DECISIONS_FILE=data/decisions.local.json
 ```
 
-> **No API key?** The system runs in mock mode automatically — all five agents return realistic demo responses. The header shows a pulsing **"Mock mode"** badge so you always know which mode you're in.
+> `QWEN_API_KEY` is required. If it is missing, the server refuses to start rather than returning fake agent analysis.
 
-> **No Tablestore credentials?** The persistence layer is **mock-first**: with no `OTS_*` credentials set, merchants are read from `data/snapshots/*.json` and decisions are read/written to `data/decisions.local.json`. Set all four `OTS_*` vars to activate a real Tablestore instance — tables `zalyx_merchants` and `zalyx_decisions` are created automatically on first run.
+> Tablestore credentials are optional for local development only. With `DATA_BACKEND=local`, merchant rows come from `data/snapshots/*.json`, custom merchant JSON is saved there, and decisions persist through `data/decisions.local.json`. Qwen Cloud is still used for the underwriting decision.
 
-### 3. Seed demo data (optional)
+### Cloud deployment reset
+
+For a fresh Alibaba demo deployment, set these on the ECS host before starting Docker Compose:
+
+```env
+DATA_BACKEND=tablestore
+RESET_TABLESTORE_ON_DEPLOY=true
+CONFIRM_TABLESTORE_RESET=zalyx-agent-db
+```
+
+When the container starts, it deletes and recreates the configured Tablestore merchant and decision tables, seeds the three default merchants from `data/snapshots/*.json`, then starts the API. Leave `RESET_TABLESTORE_ON_DEPLOY=false` for ordinary restarts where existing decisions should be preserved.
+
+### 3. Seed merchant table (optional)
 
 ```bash
 yarn seed
 ```
 
-Loads the three anonymized demo merchants into the local decision store so the dashboard shows history on first load.
+With `OTS_*` configured, this loads the anonymized merchant snapshots from `data/snapshots/*.json` into the Alibaba Cloud Tablestore merchant table. It does not create fake historical decisions.
 
 ### 4. Run
 
@@ -274,7 +290,7 @@ Run the single-agent baseline (for Track 3 comparison).
 
 ### `GET /api/merchants`
 
-Returns all merchants (from Tablestore or local snapshots in mock mode).
+Returns all merchants from the configured Tablestore merchant table.
 
 ### `GET /api/merchants/:id`
 
@@ -326,7 +342,7 @@ const args = JSON.parse(
 // → { risk_score: 42, risk_factors: [...], recommendation: "approve_with_conditions" }
 ```
 
-For financing, the numeric range is not taken from the model. `utils/policy-metrics.ts` computes deterministic monthly policy inputs from the merchant snapshot, and `utils/murabaha-engine.ts` computes the approved min/max range from GTV, risk tier, tenor, margin, and affordability policy. Qwen explains the terms and disbursement conditions around that fixed range.
+For financing, the numeric range is not taken from the model. `utils/policy-metrics.ts` computes deterministic monthly policy inputs from the merchant snapshot, and `utils/murabaha-engine.ts` computes the approved min/max range from GTV, risk tier, tenor, margin, and affordability policy. Qwen explains the terms and disbursement conditions around that fixed range. Each report stores a `FinancialSnapshotSummary`, so repeated runs against the same input have the same snapshot fingerprint and range; new external merchant data produces a new snapshot and may produce a new range.
 
 The MCP server runs as a stdio child process. Agents call it mid-reasoning:
 
@@ -368,15 +384,15 @@ zalyx-agent-society/
 │   ├── mcp-client.ts                # MCP client singleton with clean shutdown
 │   ├── murabaha-engine.ts           # Pure Murabaha math (testable, no side effects)
 │   ├── qwen-client.ts               # Qwen Cloud (DashScope) API client
-│   ├── tablestore.ts                # Alibaba Cloud Tablestore client (mock-first)
+│   ├── tablestore.ts                # Alibaba Cloud Tablestore + local file storage
 │   └── types.ts                     # All types: snapshot, report, ledger, observability
 ├── benchmark/
 │   ├── run.ts                       # Benchmark runner (yarn benchmark)
 │   ├── results.md                   # Committed benchmark results
 │   └── results.json                 # Local generated raw data (git-ignored)
 ├── data/
-│   ├── snapshots/                   # Anonymized merchant JSON snapshots (mock merchants)
-│   └── decisions.local.json         # Local decision store (mock persistence, git-ignored)
+│   ├── snapshots/                   # Anonymized merchant JSON snapshots for seed/benchmark input
+│   └── decisions.local.json         # Local decision store (git-ignored)
 ├── tests/
 │   ├── murabaha.test.ts             # 25 unit tests for Murabaha engine
 │   ├── orchestrator.test.ts         # Integration tests for the agent pipeline

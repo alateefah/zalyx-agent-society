@@ -1,27 +1,29 @@
 import { useState, useEffect, useCallback } from "react";
-import { DEMO_MERCHANTS } from "../utils/constants";
 import { fetchMerchants, fetchHealth } from "../utils/api";
 import type { ZalyxMerchantSnapshot } from "../types";
 
-const DEFAULT_MERCHANT = DEMO_MERCHANTS.restaurant;
-
 export function useMerchants() {
-  const [merchants, setMerchants] = useState<ZalyxMerchantSnapshot[]>(
-    Object.values(DEMO_MERCHANTS)
-  );
-  const [selectedMerchant, setSelectedMerchant] = useState<ZalyxMerchantSnapshot>(DEFAULT_MERCHANT);
+  const [merchants, setMerchants] = useState<ZalyxMerchantSnapshot[]>([]);
+  const [selectedMerchant, setSelectedMerchant] = useState<ZalyxMerchantSnapshot | null>(null);
+  const [isLoadingMerchants, setIsLoadingMerchants] = useState(true);
+  const [merchantsError, setMerchantsError] = useState<string | null>(null);
   const [isMock, setIsMock] = useState<boolean | null>(null);
 
   useEffect(() => {
     fetchHealth()
-      .then(({ mockMode }) => setIsMock(mockMode))
+      .then(({ localMode }) => setIsMock(localMode))
       .catch(() => {});
 
     fetchMerchants()
       .then((list) => {
-        if (list.length > 0) setMerchants(list);
+        setMerchantsError(null);
+        setMerchants(list);
       })
-      .catch(() => {});
+      .catch((err: unknown) => {
+        setMerchantsError(err instanceof Error ? err.message : "Failed to load merchants");
+        setMerchants([]);
+      })
+      .finally(() => setIsLoadingMerchants(false));
   }, []);
 
   const selectMerchant = useCallback((merchant: ZalyxMerchantSnapshot) => {
@@ -37,9 +39,18 @@ export function useMerchants() {
 
   const refreshIsMock = useCallback(() => {
     fetchHealth()
-      .then(({ mockMode }) => setIsMock(mockMode))
+      .then(({ localMode }) => setIsMock(localMode))
       .catch(() => undefined);
   }, []);
 
-  return { merchants, selectedMerchant, isMock, selectMerchant, addMerchant, refreshIsMock };
+  return {
+    merchants,
+    selectedMerchant,
+    isMock,
+    isLoadingMerchants,
+    merchantsError,
+    selectMerchant,
+    addMerchant,
+    refreshIsMock,
+  };
 }

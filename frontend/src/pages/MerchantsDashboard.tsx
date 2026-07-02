@@ -7,13 +7,14 @@ import { CustomJsonInput } from "../components/underwriting/CustomJsonInput";
 
 import { useMerchants }  from "../hooks/useMerchants";
 import { useIsMock }     from "../hooks/useIsMock";
+import { saveMerchant }  from "../utils/api";
 
 import type { ZalyxMerchantSnapshot } from "../types";
 
 export function MerchantsDashboard() {
   const navigate = useNavigate();
   const isMock = useIsMock();
-  const { merchants, addMerchant } = useMerchants();
+  const { merchants, addMerchant, isLoadingMerchants, merchantsError } = useMerchants();
 
   const [search, setSearch] = useState("");
   const [showCustom, setShowCustom] = useState(false);
@@ -34,11 +35,12 @@ export function MerchantsDashboard() {
     if (parsed) setPendingCustom(parsed);
   };
 
-  const handleAddCustom = () => {
+  const handleAddCustom = async () => {
     if (!pendingCustom) return;
-    addMerchant(pendingCustom);
-    // Pass merchant via state — backend won't have it, MerchantWorkspace uses state as fallback
-    navigate(`/merchants/${pendingCustom.id}`, { state: { merchant: pendingCustom } });
+    const saved = await saveMerchant(pendingCustom).catch(() => pendingCustom);
+    addMerchant(saved);
+    // Pass merchant via state so the workspace opens immediately after save.
+    navigate(`/merchants/${saved.id}`, { state: { merchant: saved } });
   };
 
   return (
@@ -52,7 +54,9 @@ export function MerchantsDashboard() {
             <div>
               <div className="page-title">Merchant portfolio</div>
               <div className="page-sub" style={{ marginTop: 4 }}>
-                {merchants.length} merchants · select one to view their workspace
+                {isLoadingMerchants
+                  ? "Loading merchant table…"
+                  : `${merchants.length} merchants · select one to view their workspace`}
               </div>
             </div>
             <button
@@ -110,9 +114,17 @@ export function MerchantsDashboard() {
 
           {/* Merchant list */}
           <div style={{ borderRadius: "var(--radius-md)", overflow: "hidden", border: "1px solid var(--border)" }}>
-            {filtered.length === 0 ? (
+            {isLoadingMerchants ? (
               <div style={{ padding: "24px 16px", color: "var(--text-3)", fontSize: 14 }}>
-                No merchants match "{search}"
+                Loading merchants…
+              </div>
+            ) : merchantsError ? (
+              <div style={{ padding: "24px 16px", color: "var(--red)", fontSize: 14 }}>
+                Could not load merchant snapshots. Check that the API is running on port 3001.
+              </div>
+            ) : filtered.length === 0 ? (
+              <div style={{ padding: "24px 16px", color: "var(--text-3)", fontSize: 14 }}>
+                {search ? `No merchants match "${search}"` : "No merchants found. Add a custom merchant JSON snapshot to run a review."}
               </div>
             ) : (
               filtered.map((m, i) => (

@@ -1,4 +1,4 @@
-import { API_BASE, DEMO_MERCHANTS } from "./constants";
+import { API_BASE } from "./constants";
 import type {
   ZalyxMerchantSnapshot,
   UnderwritingReport,
@@ -8,19 +8,31 @@ import type {
   AgentProgressEvent,
 } from "../types";
 
-function demoMerchantById(merchantId: string): ZalyxMerchantSnapshot | undefined {
-  return Object.values(DEMO_MERCHANTS).find((m) => m.id === merchantId);
-}
-
-export async function fetchHealth(): Promise<{ mockMode: boolean }> {
+export async function fetchHealth(): Promise<{ localMode: boolean; label: string }> {
   const r = await fetch(`${API_BASE}/api/health`);
   const h = await r.json();
-  return { mockMode: h.database?.mockMode ?? h.mockMode ?? false };
+  const decisionStore = h.database?.decisionStore ?? "tablestore";
+  const merchantSource = h.database?.merchantSource ?? "tablestore";
+  const localMode = decisionStore === "local-json" || merchantSource === "local-files";
+  return {
+    localMode,
+    label: localMode ? "Local decisions" : "Live · Qwen + Tablestore",
+  };
 }
 
 export async function fetchMerchants(): Promise<ZalyxMerchantSnapshot[]> {
   const r = await fetch(`${API_BASE}/api/merchants`);
   if (!r.ok) throw new Error("Failed to load merchants");
+  return r.json();
+}
+
+export async function saveMerchant(snapshot: ZalyxMerchantSnapshot): Promise<ZalyxMerchantSnapshot> {
+  const r = await fetch(`${API_BASE}/api/merchants`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(snapshot),
+  });
+  if (!r.ok) throw new Error("Failed to save merchant");
   return r.json();
 }
 
@@ -42,24 +54,11 @@ export async function fetchDecisionHistory(merchantId: string): Promise<Decision
 
 /** Fetch a single merchant by ID from the dedicated endpoint. */
 export async function fetchMerchantById(merchantId: string): Promise<ZalyxMerchantSnapshot> {
-  let r: Response;
-  try {
-    r = await fetch(`${API_BASE}/api/merchants/${encodeURIComponent(merchantId)}`);
-  } catch {
-    const demo = demoMerchantById(merchantId);
-    if (demo) return demo;
-    throw new Error("Failed to load merchant");
-  }
+  const r = await fetch(`${API_BASE}/api/merchants/${encodeURIComponent(merchantId)}`);
   if (r.status === 404) {
-    const demo = demoMerchantById(merchantId);
-    if (demo) return demo;
     throw new Error(`Merchant ${merchantId} not found`);
   }
-  if (!r.ok) {
-    const demo = demoMerchantById(merchantId);
-    if (demo) return demo;
-    throw new Error("Failed to load merchant");
-  }
+  if (!r.ok) throw new Error("Failed to load merchant");
   return r.json();
 }
 

@@ -16,9 +16,24 @@
     "uncollectedNaira": 1064000
   },
   "monthlyRevenue": [
-    { "month": "2026-04", "revenueNaira": 307000,  "orderCount": 6,  "uniqueCustomers": 6  },
-    { "month": "2026-05", "revenueNaira": 2653000, "orderCount": 23, "uniqueCustomers": 20 },
-    { "month": "2026-06", "revenueNaira": 1338000, "orderCount": 17, "uniqueCustomers": 17 }
+    {
+      "month": "2026-04",
+      "revenueNaira": 307000,
+      "orderCount": 6,
+      "uniqueCustomers": 6
+    },
+    {
+      "month": "2026-05",
+      "revenueNaira": 2653000,
+      "orderCount": 23,
+      "uniqueCustomers": 20
+    },
+    {
+      "month": "2026-06",
+      "revenueNaira": 1338000,
+      "orderCount": 17,
+      "uniqueCustomers": 17
+    }
   ],
   "signals": {
     "period30d": {

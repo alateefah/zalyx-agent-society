@@ -1,13 +1,13 @@
 import { useState, useEffect } from "react";
 import { fetchHealth } from "../utils/api";
 
-/** Fetches health once on mount and returns the mock-mode flag. */
+/** Fetches health once on mount and returns whether runtime storage is local. */
 export function useIsMock(): boolean | null {
   const [isMock, setIsMock] = useState<boolean | null>(null);
   useEffect(() => {
     fetchHealth()
-      .then(({ mockMode }) => setIsMock(mockMode))
-      .catch(() => setIsMock(true));
+      .then(({ localMode }) => setIsMock(localMode))
+      .catch(() => setIsMock(null));
   }, []);
   return isMock;
 }

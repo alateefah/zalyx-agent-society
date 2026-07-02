@@ -116,6 +116,25 @@ export interface HumanReviewResult {
   reason: string;
 }
 
+export interface FinancialSnapshotSummary {
+  capturedAt: string;
+  latestRevenueMonth?: string;
+  revenueMonths: string[];
+  snapshotHash: string;
+  businessAgeDays: number;
+  totalOrders: number;
+  completedOrders: number;
+  outstandingOrders: number;
+  uncollectedReceivablesNaira: number;
+  activeDays30d: number;
+  avgDailyRevenue30dNaira: number;
+  activeDays90d: number;
+  avgMonthlyRevenueNaira: number;
+  existingScore?: number;
+  existingTier?: string;
+  existingScoreAsOfDate?: string;
+}
+
 // ── Debate ────────────────────────────────────────────────────────────────────
 
 export interface AgentDebateMessage {
@@ -192,6 +211,7 @@ export interface RunObservability {
 export interface UnderwritingReport {
   merchantId: string;
   executionTime: string;
+  financialSnapshot?: FinancialSnapshotSummary;
   dataQuality: DataQualityResult;
   businessAnalysis: BusinessAnalysisResult;
   riskAssessment: RiskAssessmentResult;
@@ -241,5 +261,6 @@ export interface DecisionSummary {
   createdAt: string;
   approvedAmountNaira?: number;
   approvedRange?: FinancingOfferRange;
+  financialSnapshot?: FinancialSnapshotSummary;
   executionTime?: string;
 }

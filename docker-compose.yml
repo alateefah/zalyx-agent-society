@@ -11,17 +11,31 @@ services:
       - QWEN_API_KEY=${QWEN_API_KEY}
       - QWEN_MODEL=${QWEN_MODEL:-qwen-max}
       - QWEN_API_BASE_URL=https://dashscope-intl.aliyuncs.com/compatible-mode/v1
+      - DATA_BACKEND=${DATA_BACKEND:-tablestore}
       # ── Alibaba Cloud Tablestore (persistence) ──
       # Set these in a .env file next to this compose file on the ECS host.
-      # Leaving them blank runs Tablestore in mock mode (local JSON).
+      # Leaving them blank means local file-backed merchant and decision storage.
       - OTS_ENDPOINT=${OTS_ENDPOINT:-}
       - OTS_INSTANCE=${OTS_INSTANCE:-}
       - OTS_ACCESS_KEY_ID=${OTS_ACCESS_KEY_ID:-}
       - OTS_ACCESS_KEY_SECRET=${OTS_ACCESS_KEY_SECRET:-}
       - OTS_MERCHANTS_TABLE=${OTS_MERCHANTS_TABLE:-zalyx_merchants}
       - OTS_DECISIONS_TABLE=${OTS_DECISIONS_TABLE:-zalyx_decisions}
+      - DECISION_STORE=${DECISION_STORE:-auto}
+      - LOCAL_MERCHANTS_DIR=${LOCAL_MERCHANTS_DIR:-data/snapshots}
+      - LOCAL_DECISIONS_FILE=${LOCAL_DECISIONS_FILE:-data/decisions.local.json}
+      - RESET_TABLESTORE_ON_DEPLOY=${RESET_TABLESTORE_ON_DEPLOY:-false}
+      - CONFIRM_TABLESTORE_RESET=${CONFIRM_TABLESTORE_RESET:-}
       - PORT=3001
       - NODE_ENV=production
+    command:
+      - sh
+      - -c
+      - |
+        if [ "$$RESET_TABLESTORE_ON_DEPLOY" = "true" ]; then
+          node dist/utils/reset-tablestore.js
+        fi
+        exec node dist/server.js
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3001/api/health"]

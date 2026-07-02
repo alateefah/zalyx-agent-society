@@ -32,6 +32,13 @@ function decisionAmountLabel(summary: DecisionSummary): string {
     : "—";
 }
 
+function snapshotLabel(summary: DecisionSummary): string {
+  const snapshot = summary.financialSnapshot;
+  if (!snapshot) return "—";
+  const window = snapshot.latestRevenueMonth ?? "current";
+  return `${window} · ${snapshot.totalOrders} orders · ${fmt(snapshot.uncollectedReceivablesNaira)} uncollected`;
+}
+
 export function MerchantWorkspace() {
   const { merchantId } = useParams<{ merchantId: string }>();
   const navigate = useNavigate();
@@ -282,6 +289,11 @@ export function MerchantWorkspace() {
                       {fmtDate(latest.createdAt)} at {fmtTime(latest.createdAt)}
                       {latest.executionTime && ` · ${latest.executionTime}`}
                     </div>
+                    {latest.financialSnapshot && (
+                      <div style={{ fontSize: 11, color: "var(--text-3)", marginBottom: 10 }}>
+                        Snapshot {snapshotLabel(latest)}
+                      </div>
+                    )}
                     <Link
                       to={`/merchants/${merchantId}/decisions/${latest.requestId}`}
                       style={{ fontSize: 12, color: "var(--primary)", textDecoration: "none", display: "flex", alignItems: "center", gap: 4 }}
@@ -309,7 +321,7 @@ export function MerchantWorkspace() {
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead>
                     <tr style={{ background: "var(--surface)", borderBottom: "1px solid var(--border)" }}>
-                      {["Date", "Decision", "Amount", "Duration", ""].map((h) => (
+                      {["Date", "Decision", "Amount", "Snapshot", "Duration", ""].map((h) => (
                         <th key={h} style={{
                           padding: "10px 14px", textAlign: "left",
                           fontSize: 11, fontWeight: 600, color: "var(--text-3)",
@@ -343,6 +355,9 @@ export function MerchantWorkspace() {
                         </td>
                         <td style={{ padding: "11px 14px", fontSize: 13, color: "var(--text-1)" }}>
                           {decisionAmountLabel(s)}
+                        </td>
+                        <td style={{ padding: "11px 14px", fontSize: 12, color: "var(--text-3)" }}>
+                          {snapshotLabel(s)}
                         </td>
                         <td style={{ padding: "11px 14px", fontSize: 12, color: "var(--text-3)" }}>
                           {s.executionTime ?? "—"}

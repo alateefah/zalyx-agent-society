@@ -5,8 +5,112 @@
  *   - Business health score > 55  AND  risk score > 35 → debate fires
  *   - Either condition not met → debate skipped (saves LLM calls)
  *
- * Uses mocked agents so tests run without a Qwen API key.
+ * Uses an explicit Qwen test double so tests do not need network access.
  */
+
+jest.mock("../utils/qwen-client", () => {
+  const actual = jest.requireActual("../utils/qwen-client");
+  let callCount = 0;
+
+  const messages: Record<string, string> = {
+    "Data Quality Agent": "Data quality is adequate for underwriting with receivables caveats.",
+    "Business Analysis Agent": "Business fundamentals support a measured monthly Murabaha range.",
+    "Risk Assessment Agent": "Receivables and activity patterns require conservative controls.",
+    "Business Analysis Agent (Rebuttal)": "The activity pattern is partly explained by business cycle timing.",
+    "Risk Assessment Agent (Verdict)": "Moderate risk accepted with receivables conditions.",
+    "Financing Structure Agent": "The deterministic policy range is appropriate for this merchant.",
+    "Human Review Agent": "Final decision follows the deterministic policy recommendation.",
+  };
+
+  const toolCalls: Record<string, { name: string; arguments: Record<string, unknown> }> = {
+    "Data Quality Agent": {
+      name: "submit_data_quality_result",
+      arguments: {
+        completeness_score: 92,
+        consistency_score: 88,
+        anomalies: ["Receivables require review"],
+        overall_quality_score: 90,
+        proceed_recommendation: "proceed_with_caveats",
+        quality_notes: "Data is usable for underwriting with receivables caveats.",
+      },
+    },
+    "Business Analysis Agent": {
+      name: "submit_business_position",
+      arguments: {
+        monthly_revenue_average: 850000,
+        revenue_stability_score: 95,
+        business_health_score: 82,
+        profitability_indicator: "strong",
+        key_strengths: ["Stable monthly revenue", "Good platform activity"],
+        key_concerns: ["Some receivables remain outstanding"],
+        recommendation: "Business fundamentals support approval subject to risk review.",
+      },
+    },
+    "Risk Assessment Agent": {
+      name: "submit_risk_verdict",
+      arguments: {
+        risk_level: "MODERATE",
+        adjusted_risk_score: 42,
+        key_risk_factors: ["Receivables exposure"],
+        challenge_to_business_analyst: "Receivables should be controlled before disbursement.",
+        conditions_for_approval: ["Show receivables collection progress"],
+      },
+    },
+    "Risk Assessment Agent (Verdict)": {
+      name: "submit_risk_verdict",
+      arguments: {
+        risk_level: "MODERATE",
+        adjusted_risk_score: 42,
+        key_risk_factors: ["Receivables exposure"],
+        challenge_to_business_analyst: "Risk remains manageable with conditions.",
+        conditions_for_approval: ["Show receivables collection progress"],
+      },
+    },
+    "Financing Structure Agent": {
+      name: "structure_murabaha_offer",
+      arguments: {
+        disbursement_conditions: ["Show receivables collection progress"],
+        structuring_rationale: "Range is computed by policy and Qwen only explains the terms.",
+      },
+    },
+    "Human Review Agent": {
+      name: "issue_underwriting_decision",
+      arguments: {
+        decision: "approved",
+        approved_amount_naira: 100000,
+        decision_rationale_underwriter: "Policy-owned final decision.",
+        decision_rationale_merchant: "Your range is approved subject to listed conditions.",
+        mandatory_conditions: ["Show receivables collection progress"],
+        what_debate_resolved: "The debate resolved activity context versus receivables risk.",
+      },
+    },
+  };
+
+  const qwenClient = {
+    mockMode: false,
+    getCallCount: jest.fn(() => callCount),
+    resetCallCount: jest.fn(() => { callCount = 0; }),
+    chat: jest.fn(async (_messages: unknown, agentName: string) => {
+      callCount += 1;
+      return { message: messages[agentName] ?? "Qwen test response.", agentName, timestamp: new Date().toISOString() };
+    }),
+    chatWithTools: jest.fn(async (_messages: unknown, _tools: unknown, agentName: string) => {
+      callCount += 1;
+      return {
+        message: messages[agentName] ?? "Qwen test response.",
+        agentName,
+        timestamp: new Date().toISOString(),
+        toolCall: toolCalls[agentName],
+      };
+    }),
+    analyzeWithContext: jest.fn(async (_prompt: string, _context: string, agentName: string) => {
+      callCount += 1;
+      return { message: messages[agentName] ?? "Qwen test response.", agentName, timestamp: new Date().toISOString() };
+    }),
+  };
+
+  return { ...actual, qwenClient };
+});
 
 import { AgentOrchestrator } from "../orchestration/agent-orchestrator";
 import { ZalyxMerchantSnapshot, AgentProgressEvent } from "../utils/types";
@@ -19,7 +123,7 @@ afterAll(async () => {
 
 // ── Minimal valid snapshot for testing ────────────────────────────────────────
 
-const MOCK_SNAPSHOT: ZalyxMerchantSnapshot = {
+const TEST_SNAPSHOT: ZalyxMerchantSnapshot = {
   id: "TEST-001",
   businessName: "Test Merchant",
   businessType: "retail",
@@ -78,23 +182,22 @@ async function collectEvents(orchestrator: AgentOrchestrator, snapshot: ZalyxMer
 describe("AgentOrchestrator — debate trigger logic", () => {
   /**
    * The debate fires when: businessHealthScore > 55 AND riskScore > 35.
-   * In mock mode, the qwenClient returns fixed values. We test the outcome
-   * based on what the mock agents return.
+   * The Qwen test double returns fixed values so this suite can run offline.
    */
 
-  test("orchestrator completes without throwing in mock mode", async () => {
+  test("orchestrator completes without throwing", async () => {
     const orchestrator = new AgentOrchestrator();
-    const report = await orchestrator.runUnderwriting(MOCK_SNAPSHOT);
+    const report = await orchestrator.runUnderwriting(TEST_SNAPSHOT);
 
     expect(report).toBeDefined();
     expect(report.merchantId).toBe("TEST-001");
     expect(report.humanReview.finalRecommendation).toMatch(/^(approved|rejected|requires-clarification)$/);
     expect(report.debateTranscript.length).toBeGreaterThan(0);
-  }, 30_000); // 30s timeout — mock agents still do async work
+  }, 30_000); // 30s timeout — test double still exercises async stages
 
   test("report contains all required fields", async () => {
     const orchestrator = new AgentOrchestrator();
-    const report = await orchestrator.runUnderwriting(MOCK_SNAPSHOT);
+    const report = await orchestrator.runUnderwriting(TEST_SNAPSHOT);
 
     expect(report.dataQuality).toBeDefined();
     expect(typeof report.dataQuality.overallScore).toBe("number");
@@ -105,6 +208,12 @@ describe("AgentOrchestrator — debate trigger logic", () => {
     expect(report.riskAssessment).toBeDefined();
     expect(typeof report.riskAssessment.overallRiskScore).toBe("number");
     expect(Array.isArray(report.riskAssessment.riskFactors)).toBe(true);
+
+    expect(report.financialSnapshot).toBeDefined();
+    expect(report.financialSnapshot.totalOrders).toBe(TEST_SNAPSHOT.orders.total);
+    expect(report.financialSnapshot.uncollectedReceivablesNaira).toBe(TEST_SNAPSHOT.receivables.uncollectedNaira);
+    expect(report.financialSnapshot.revenueMonths).toEqual(["2026-04", "2026-05", "2026-06"]);
+    expect(report.financialSnapshot.snapshotHash).toMatch(/^[a-f0-9]{16}$/);
 
     expect(report.financingStructure).toBeDefined();
     expect(typeof report.financingStructure.proposedAmount).toBe("string");
@@ -119,7 +228,7 @@ describe("AgentOrchestrator — debate trigger logic", () => {
 
   test("SSE progress events fire in expected order", async () => {
     const orchestrator = new AgentOrchestrator();
-    const { events, debateFireCount } = await collectEvents(orchestrator, MOCK_SNAPSHOT);
+    const { events, debateFireCount } = await collectEvents(orchestrator, TEST_SNAPSHOT);
 
     const types = events.map((e) => e.type);
 
@@ -148,13 +257,13 @@ describe("AgentOrchestrator — debate trigger logic", () => {
       expect(completeIdx).toBeGreaterThan(startIdx);
     }
 
-    // Debate round may or may not fire depending on mock scores — just check count is 0 or 1
+    // Debate round may or may not fire depending on test-double scores — just check count is 0 or 1
     expect(debateFireCount).toBeLessThanOrEqual(1);
   }, 30_000);
 
   test("stage_complete events carry debate messages with required fields", async () => {
     const orchestrator = new AgentOrchestrator();
-    const report = await orchestrator.runUnderwriting(MOCK_SNAPSHOT);
+    const report = await orchestrator.runUnderwriting(TEST_SNAPSHOT);
 
     for (const msg of report.debateTranscript) {
       expect(typeof msg.agentName).toBe("string");
@@ -177,14 +286,14 @@ describe("AgentOrchestrator — debate trigger logic", () => {
     const report = await orchestrator.runUnderwriting(snapshot003);
 
     // If the early-exit gate fired, financing proposed amount should be ₦0
-    // (This is conditional on mock scores — test checks the gate is at least reachable)
+    // (This is conditional on test-double scores — test checks the gate is at least reachable)
     expect(report).toBeDefined();
     expect(report.humanReview.finalRecommendation).toBeDefined();
   }, 30_000);
 
   test("humanReview includes a numeric approvedAmountNaira", async () => {
     const orchestrator = new AgentOrchestrator();
-    const report = await orchestrator.runUnderwriting(MOCK_SNAPSHOT);
+    const report = await orchestrator.runUnderwriting(TEST_SNAPSHOT);
     expect(typeof report.humanReview.approvedAmountNaira).toBe("number");
     if (report.humanReview.finalRecommendation === "rejected") {
       expect(report.humanReview.approvedAmountNaira).toBe(0);
@@ -197,7 +306,7 @@ describe("AgentOrchestrator — debate trigger logic", () => {
 describe("Murabaha engine — integration with orchestrator scores", () => {
   test("financing proposed amount is always a naira string when not rejected", async () => {
     const orchestrator = new AgentOrchestrator();
-    const report = await orchestrator.runUnderwriting(MOCK_SNAPSHOT);
+    const report = await orchestrator.runUnderwriting(TEST_SNAPSHOT);
 
     if (report.humanReview.finalRecommendation !== "rejected") {
       expect(report.financingStructure.proposedAmount).toMatch(/^₦/);
@@ -206,7 +315,7 @@ describe("Murabaha engine — integration with orchestrator scores", () => {
 
   test("repayment terms include Murabaha keyword", async () => {
     const orchestrator = new AgentOrchestrator();
-    const report = await orchestrator.runUnderwriting(MOCK_SNAPSHOT);
+    const report = await orchestrator.runUnderwriting(TEST_SNAPSHOT);
 
     if (
       report.financingStructure.proposedAmount !== "₦0" &&

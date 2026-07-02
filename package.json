@@ -11,6 +11,7 @@
     "demo": "ts-node demo/sample-run.ts",
     "benchmark": "ts-node benchmark/run.ts",
     "seed": "ts-node --transpile-only utils/seed.ts",
+    "reset:tablestore": "ts-node --transpile-only utils/reset-tablestore.ts",
     "test": "jest",
     "type-check": "tsc --noEmit",
     "audit:repo": "ts-node scripts/repository-audit.ts"

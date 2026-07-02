@@ -84,7 +84,7 @@ export function DecisionReport() {
             <div style={{ fontSize: 40, marginBottom: 12 }}>404</div>
             <div style={{ color: "var(--text-2)", marginBottom: 8 }}>Decision report not found.</div>
             <div style={{ color: "var(--text-3)", fontSize: 13, marginBottom: 24 }}>
-              It may have been run in mock mode (not persisted) or the ID is incorrect.
+              It may not have been persisted in this environment, or the ID is incorrect.
             </div>
             <Link to={workspacePath} className="btn-secondary" style={{ textDecoration: "none" }}>
               ← Back to {merchantName}

@@ -15,7 +15,7 @@ and Alibaba Cloud Tablestore live mode. The health response should show
 - Node.js 20+
 - Yarn 1.x
 - A Qwen Cloud API key for live inference
-- Optional Alibaba Cloud Tablestore credentials for live persistence
+- Optional Alibaba Cloud Tablestore credentials for merchant-table persistence
 
 ## Install
 
@@ -27,9 +27,10 @@ cd frontend && yarn install && cd ..
 cp .env.example .env
 ```
 
-Set `QWEN_API_KEY` in `.env` for live Qwen calls. Leave the `OTS_*` values blank
-for local mock persistence, or set all four required values to use Alibaba Cloud
-Tablestore:
+Set `QWEN_API_KEY` in `.env`; the app does not invent Qwen responses when the
+key is missing. Set all four `OTS_*` values to use Alibaba Cloud Tablestore for
+the merchant table. Leave them blank locally to load merchants from
+`data/snapshots/*.json`:
 
 ```env
 QWEN_API_KEY=your_qwen_cloud_api_key_here
@@ -37,10 +38,14 @@ QWEN_MODEL=qwen-max
 QWEN_API_BASE_URL=https://dashscope-intl.aliyuncs.com/compatible-mode/v1
 PORT=3001
 
+DATA_BACKEND=local
 OTS_ENDPOINT=https://<instance>.<region>.ots.aliyuncs.com
 OTS_INSTANCE=<your_instance_name>
 OTS_ACCESS_KEY_ID=
 OTS_ACCESS_KEY_SECRET=
+DECISION_STORE=auto
+LOCAL_MERCHANTS_DIR=data/snapshots
+LOCAL_DECISIONS_FILE=data/decisions.local.json
 ```
 
 ## Run Locally
@@ -72,6 +77,12 @@ yarn test --runInBand
 yarn build
 ```
 
-Without a Qwen key, the app uses deterministic mock model responses while still
-running the real orchestrator, MCP tools, Murabaha policy engine, streaming API,
-and persistence adapter.
+`DATA_BACKEND=local` loads the three demo merchants from `data/snapshots`,
+saves custom merchants there, still calls Qwen Cloud for the decision, and
+writes reports to `data/decisions.local.json`.
+
+For Alibaba ECS, use `DATA_BACKEND=tablestore`. To intentionally reset the demo
+database on deployment, set `RESET_TABLESTORE_ON_DEPLOY=true` and
+`CONFIRM_TABLESTORE_RESET=<OTS_INSTANCE>` before `docker compose up`; the
+container will recreate the OTS tables, preload the three merchants, call Qwen
+for decisions, and store results in Tablestore.

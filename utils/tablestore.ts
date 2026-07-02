@@ -7,19 +7,18 @@
  *                      global secondary index `decision_index` on (decision, createdAt)
  *                      → "all approvals / rejections across merchants"
  *
- * Mock-first: with no OTS_* credentials, merchants are read from
- * data/snapshots/*.json and decisions from a local JSON file, so the full
- * demo runs with zero Alibaba Cloud access. Real Tablestore activates
- * automatically when OTS_ENDPOINT/OTS_INSTANCE/OTS_ACCESS_KEY_ID/OTS_ACCESS_KEY_SECRET are set.
+ * Production reads/writes merchants and decisions from Tablestore when
+ * DATA_BACKEND=tablestore and OTS_* credentials are present. Local development
+ * reads merchant snapshots from data/snapshots and stores decisions in JSON.
  */
 import fs from "fs";
 import path from "path";
-import { FinancingOfferRange, ZalyxMerchantSnapshot, UnderwritingReport } from "./types";
+import { FinancialSnapshotSummary, FinancingOfferRange, ZalyxMerchantSnapshot, UnderwritingReport } from "./types";
 import {
   StoredDecision,
   readLocalDecisions,
   appendLocalDecision,
-} from "./tablestore-mock-store";
+} from "./local-decision-store";
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 import TableStore = require("tablestore");
@@ -56,6 +55,7 @@ function attrsToMap(row: any): Record<string, any> {
 const MERCHANTS_TABLE = process.env.OTS_MERCHANTS_TABLE || "zalyx_merchants";
 const DECISIONS_TABLE = process.env.OTS_DECISIONS_TABLE || "zalyx_decisions";
 const DECISION_INDEX = "decision_index";
+const DATA_BACKEND = (process.env.DATA_BACKEND || (process.env.NODE_ENV === "production" ? "tablestore" : "local")).toLowerCase();
 
 function hasCredentials(): boolean {
   return Boolean(
@@ -66,7 +66,18 @@ function hasCredentials(): boolean {
   );
 }
 
-export let tablestoreMockMode = !hasCredentials();
+export const tablestoreConfigured = DATA_BACKEND === "tablestore" && hasCredentials();
+
+function useLocalDecisionStore(): boolean {
+  const preference = (process.env.DECISION_STORE || "auto").toLowerCase();
+  return preference === "local" || !tablestoreConfigured;
+}
+
+export const decisionStoreMode = useLocalDecisionStore() ? "local-json" : "tablestore";
+
+function localMerchantsDir(): string {
+  return process.env.LOCAL_MERCHANTS_DIR || path.join(process.cwd(), "data", "snapshots");
+}
 
 // ── Exported row shapes ─────────────────────────────────────────────────────
 export interface DecisionSummaryRow {
@@ -76,6 +87,7 @@ export interface DecisionSummaryRow {
   createdAt: string;
   approvedAmountNaira?: number;
   approvedRange?: FinancingOfferRange;
+  financialSnapshot?: FinancialSnapshotSummary;
   executionTime?: string;
 }
 export interface DecisionTypeRow {
@@ -88,39 +100,27 @@ export interface DecisionTypeRow {
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-/** Initialise tables + index and seed merchants. Call once on server start. */
+/** Initialise tables + index. Call once on server start. */
 export async function initTablestore(): Promise<void> {
-  if (tablestoreMockMode) {
-    console.log("  ⚠️  Tablestore mock mode — reading merchants from data/snapshots, decisions from local JSON");
+  if (!tablestoreConfigured) {
+    console.log("  ℹ️  Tablestore credentials not set — merchants read from local snapshots; decisions use local JSON");
     return;
   }
-  // Real-mode init is implemented in Task 3.
   await initRealTablestore();
 }
 
 export async function getMerchantSnapshot(id: string): Promise<ZalyxMerchantSnapshot | null> {
-  if (tablestoreMockMode) {
-    const fp = path.join(process.cwd(), `data/snapshots/${id}.json`);
-    if (!fs.existsSync(fp)) return null;
-    return JSON.parse(fs.readFileSync(fp, "utf-8")) as ZalyxMerchantSnapshot;
-  }
+  if (!tablestoreConfigured) return getLocalMerchantSnapshot(id);
   return getMerchantSnapshotReal(id);
 }
 
 export async function listMerchants(): Promise<ZalyxMerchantSnapshot[]> {
-  if (tablestoreMockMode) {
-    const dir = path.join(process.cwd(), "data/snapshots");
-    if (!fs.existsSync(dir)) return [];
-    return fs
-      .readdirSync(dir)
-      .filter((f) => f.endsWith(".json"))
-      .map((f) => JSON.parse(fs.readFileSync(path.join(dir, f), "utf-8")));
-  }
+  if (!tablestoreConfigured) return listLocalMerchantSnapshots();
   return listMerchantsReal();
 }
 
 export async function saveMerchantSnapshot(snapshot: ZalyxMerchantSnapshot): Promise<void> {
-  if (tablestoreMockMode) return; // snapshots live in data/snapshots in mock mode
+  if (!tablestoreConfigured) return saveLocalMerchantSnapshot(snapshot);
   return saveMerchantSnapshotReal(snapshot);
 }
 
@@ -134,16 +134,16 @@ export async function saveUnderwritingDecision(report: UnderwritingReport): Prom
     createdAt: new Date().toISOString(),
     report,
   };
-  if (tablestoreMockMode) {
+  if (useLocalDecisionStore()) {
     appendLocalDecision(row);
-    console.log(`  💾 [mock] Saved decision: ${row.merchantId} → ${row.decision} (${row.requestId})`);
+    console.log(`  💾 Saved decision locally: ${row.merchantId} → ${row.decision} (${row.requestId})`);
     return;
   }
   return saveUnderwritingDecisionReal(row);
 }
 
 export async function getDecisionsForMerchant(merchantId: string): Promise<UnderwritingReport[]> {
-  if (tablestoreMockMode) {
+  if (useLocalDecisionStore()) {
     return readLocalDecisions()
       .filter((d) => d.merchantId === merchantId)
       .sort((a, b) => b.requestId.localeCompare(a.requestId)) // newest first
@@ -153,7 +153,7 @@ export async function getDecisionsForMerchant(merchantId: string): Promise<Under
 }
 
 export async function getMerchantDecisionSummaries(merchantId: string): Promise<DecisionSummaryRow[]> {
-  if (tablestoreMockMode) {
+  if (useLocalDecisionStore()) {
     return readLocalDecisions()
       .filter((d) => d.merchantId === merchantId)
       .sort((a, b) => b.requestId.localeCompare(a.requestId))
@@ -164,6 +164,7 @@ export async function getMerchantDecisionSummaries(merchantId: string): Promise<
         createdAt,
         approvedAmountNaira,
         approvedRange: report.humanReview?.approvedRange ?? report.financingStructure?.offerRange,
+        financialSnapshot: report.financialSnapshot,
         executionTime,
       }));
   }
@@ -174,7 +175,7 @@ export async function getDecisionById(
   merchantId: string,
   requestId: string
 ): Promise<{ report: UnderwritingReport; createdAt: string } | null> {
-  if (tablestoreMockMode) {
+  if (useLocalDecisionStore()) {
     const hit = readLocalDecisions().find((d) => d.merchantId === merchantId && d.requestId === requestId);
     return hit ? { report: hit.report, createdAt: hit.createdAt } : null;
   }
@@ -185,7 +186,7 @@ export async function listDecisionsByType(
   decisionType: "approved" | "rejected" | "requires-clarification",
   limit = 50
 ): Promise<DecisionTypeRow[]> {
-  if (tablestoreMockMode) {
+  if (useLocalDecisionStore()) {
     return readLocalDecisions()
       .filter((d) => d.decision === decisionType)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
@@ -202,6 +203,38 @@ export async function listDecisionsByType(
 }
 
 // ── Real Tablestore backend ──────────────────────────────────────────────────
+
+function localMerchantFile(id: string): string {
+  const safeId = id.replace(/[^A-Za-z0-9_-]/g, "_");
+  return path.join(localMerchantsDir(), `${safeId}.json`);
+}
+
+function readSnapshotFile(filePath: string): ZalyxMerchantSnapshot {
+  return JSON.parse(fs.readFileSync(filePath, "utf-8")) as ZalyxMerchantSnapshot;
+}
+
+async function getLocalMerchantSnapshot(id: string): Promise<ZalyxMerchantSnapshot | null> {
+  const fp = localMerchantFile(id);
+  if (!fs.existsSync(fp)) return null;
+  return readSnapshotFile(fp);
+}
+
+async function listLocalMerchantSnapshots(): Promise<ZalyxMerchantSnapshot[]> {
+  const dir = localMerchantsDir();
+  if (!fs.existsSync(dir)) return [];
+  return fs
+    .readdirSync(dir)
+    .filter((f) => f.endsWith(".json"))
+    .sort()
+    .map((f) => readSnapshotFile(path.join(dir, f)));
+}
+
+async function saveLocalMerchantSnapshot(snapshot: ZalyxMerchantSnapshot): Promise<void> {
+  const fp = localMerchantFile(snapshot.id);
+  fs.mkdirSync(path.dirname(fp), { recursive: true });
+  fs.writeFileSync(fp, JSON.stringify(snapshot, null, 2), "utf-8");
+  console.log(`  💾 Saved local merchant snapshot: ${snapshot.id}`);
+}
 
 async function tableExists(name: string): Promise<boolean> {
   const { tableNames } = await call<{ tableNames: string[] }>("listTable", {});
@@ -251,25 +284,67 @@ async function initRealTablestore(): Promise<void> {
       });
     }
 
-    await seedMerchantsIfEmpty();
     console.log("✅ Tablestore ready");
   } catch (err) {
-    console.error("❌ Tablestore init failed — falling back to mock mode:", err);
-    tablestoreMockMode = true;
+    console.error("❌ Tablestore init failed:", err);
+    throw err;
   }
 }
 
-async function seedMerchantsIfEmpty(): Promise<void> {
-  const dir = path.join(process.cwd(), "data/snapshots");
-  if (!fs.existsSync(dir)) return;
+export async function seedMerchantTableFromSnapshots(): Promise<number> {
+  if (!tablestoreConfigured) {
+    throw new Error("OTS_* credentials are required to seed the merchant table.");
+  }
+  return seedMerchantSnapshotsFromDisk();
+}
+
+async function seedMerchantSnapshotsFromDisk(): Promise<number> {
+  const dir = localMerchantsDir();
+  if (!fs.existsSync(dir)) return 0;
+  let count = 0;
   for (const file of fs.readdirSync(dir).filter((f) => f.endsWith(".json"))) {
     const snap: ZalyxMerchantSnapshot = JSON.parse(fs.readFileSync(path.join(dir, file), "utf-8"));
     const existing = await getMerchantSnapshotReal(snap.id);
     if (!existing) {
       await saveMerchantSnapshotReal(snap);
       console.log(`  📥 Seeded merchant: ${snap.id}`);
+      count += 1;
     }
   }
+  return count;
+}
+
+async function deleteTableIfExists(tableName: string): Promise<void> {
+  if (!(await tableExists(tableName))) return;
+  console.log(`  🧹 Deleting Tablestore table: ${tableName}`);
+  await call("deleteTable", { tableName });
+  await waitForTableDeletion(tableName);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForTableDeletion(tableName: string): Promise<void> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (!(await tableExists(tableName))) return;
+    await sleep(1000);
+  }
+  throw new Error(`Timed out waiting for Tablestore table deletion: ${tableName}`);
+}
+
+export async function resetTablestoreAndSeedMerchants(): Promise<void> {
+  if (!tablestoreConfigured) {
+    throw new Error("OTS_* credentials are required to reset Alibaba Cloud Tablestore.");
+  }
+
+  await deleteTableIfExists(DECISIONS_TABLE);
+  await deleteTableIfExists(MERCHANTS_TABLE);
+  _client = null;
+
+  await initRealTablestore();
+  const seeded = await seedMerchantSnapshotsFromDisk();
+  console.log(`  📥 Seeded ${seeded} merchant snapshot(s)`);
 }
 
 async function getMerchantSnapshotReal(id: string): Promise<ZalyxMerchantSnapshot | null> {
@@ -353,6 +428,7 @@ async function getMerchantDecisionSummariesReal(merchantId: string): Promise<Dec
     createdAt: m.createdAt,
     approvedAmountNaira: typeof m.approvedAmountNaira?.toNumber === "function" ? m.approvedAmountNaira.toNumber() : Number(m.approvedAmountNaira ?? 0),
     approvedRange: parseApprovedRange(m.report),
+    financialSnapshot: parseFinancialSnapshot(m.report),
     executionTime: m.executionTime,
   }));
 }
@@ -362,6 +438,16 @@ function parseApprovedRange(reportJson?: string): FinancingOfferRange | undefine
   try {
     const report = JSON.parse(reportJson) as UnderwritingReport;
     return report.humanReview?.approvedRange ?? report.financingStructure?.offerRange;
+  } catch {
+    return undefined;
+  }
+}
+
+function parseFinancialSnapshot(reportJson?: string): FinancialSnapshotSummary | undefined {
+  if (!reportJson) return undefined;
+  try {
+    const report = JSON.parse(reportJson) as UnderwritingReport;
+    return report.financialSnapshot;
   } catch {
     return undefined;
   }

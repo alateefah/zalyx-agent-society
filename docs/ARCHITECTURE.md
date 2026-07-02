@@ -20,7 +20,7 @@ flowchart LR
   UI <-->|"REST + SSE"| API["Express API in Docker on Alibaba Cloud ECS"]
   API --> O["Agent Orchestrator"]
   API --> TS["Alibaba Cloud Tablestore"]
-  API -. "local fallback" .-> LS["data/snapshots + data/decisions.local.json"]
+  API -. "local file mode" .-> LS["data/snapshots + data/decisions.local.json"]
 
   O --> P["Parallel data quality + business analysis"]
   P --> R["Risk challenge"]
@@ -83,11 +83,17 @@ for cross-merchant queries by decision type. Merchant history requests retrieve
 projected summaries, while permanent report URLs perform a composite-key point
 read for the full report.
 
-With missing `OTS_*` credentials, the same interface falls back to
-`data/snapshots/*.json` for merchants and `data/decisions.local.json` for
-decision history. With `OTS_ENDPOINT`, `OTS_INSTANCE`, `OTS_ACCESS_KEY_ID`, and
-`OTS_ACCESS_KEY_SECRET` present, Tablestore tables and the index are created on
-first boot.
+Local development uses `DATA_BACKEND=local`: merchants are read/written from
+`data/snapshots/*.json`, custom merchant JSON is appended as snapshot files, and
+decision history is stored in `data/decisions.local.json`. Qwen Cloud is still
+called for underwriting; local mode only changes persistence.
+
+Alibaba ECS uses `DATA_BACKEND=tablestore` with `OTS_ENDPOINT`, `OTS_INSTANCE`,
+`OTS_ACCESS_KEY_ID`, and `OTS_ACCESS_KEY_SECRET`. On a confirmed deployment
+refresh, `RESET_TABLESTORE_ON_DEPLOY=true` plus
+`CONFIRM_TABLESTORE_RESET=<OTS_INSTANCE>` clears the configured OTS tables,
+recreates them, preloads the three default merchant snapshots, then stores new
+underwriting decisions in `zalyx_decisions`.
 
 ## Typed Model Boundary
 
@@ -98,16 +104,17 @@ contracts, and the final report includes:
 - Agent score objects and debate transcript
 - `DebateResolution` and claim-level `DebateLedger`
 - Deterministic `FinancingStructureResult` with a customer-selectable min/max investment range and monthly review window
+- `FinancialSnapshotSummary` with the input fingerprint and snapshot metrics used for that range
 - Baseline `DecisionDelta`
 - `RunObservability` with request ID, model, call counts, timings, and gates
 
 ## Failure Handling
 
-- Qwen calls use deterministic mock fallback when credentials are absent.
+- Missing Qwen credentials fail fast; the runtime does not invent agent analysis.
 - MCP lookups degrade gracefully instead of aborting underwriting.
 - SSE emits explicit error events and closes the response.
 - Decisions are persisted only after a full report is produced.
-- Tablestore startup failure switches the process to local mock persistence.
+- Tablestore startup failure is surfaced as an error instead of silently changing data source.
 
 ## Scaling Path
 

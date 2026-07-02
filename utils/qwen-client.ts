@@ -5,7 +5,6 @@
  *   • analyzeWithContext  — standard chat completion
  *   • chatWithTools       — function calling (structured JSON output from Qwen)
  *   • withRetry           — exponential backoff retry for rate limits / transient errors
- *   • mock mode           — realistic mock responses + mock tool calls when no API key
  */
 
 import OpenAI from "openai";
@@ -297,128 +296,13 @@ export const ISSUE_UNDERWRITING_DECISION_TOOL = {
   },
 };
 
-// ── Mock responses (used when QWEN_API_KEY is absent) ─────────────────────────
-
-const MOCK_MESSAGES: Record<string, string> = {
-  "Data Quality Agent":
-    "Data quality assessment complete. The merchant's records show adequate completeness with consistent date ordering. Minor anomalies flagged for review, but overall data is suitable for underwriting analysis.",
-  "Business Analysis Agent":
-    "Financial health analysis indicates a viable business with positive revenue trends. Monthly averages show consistent income streams. The profit margin trajectory supports financing eligibility. Recommend approval subject to risk review.",
-  "Risk Assessment Agent":
-    "CAUTION: Revenue concentration warrants scrutiny. While the business shows health indicators, seasonal volatility patterns present moderate risk. I challenge the Business Agent's optimism — a conservative financing structure is warranted.",
-  "Business Analysis Agent (Rebuttal)":
-    "I acknowledge the Risk Officer's receivables concern — legitimate. However, I stand firm on revenue trajectory. This merchant's business type drives lumpy, term-based patterns that look like inactivity between cycles but represent normal operations. I maintain this is an approvable case with appropriate mitigations.",
-  "Risk Assessment Agent (Verdict)":
-    "I accept the Business Analyst's seasonality argument — contextually sound. I revise downward on the inactivity flag. However, I hold firm on receivables collection efficiency before disbursal. FINAL VERDICT: Moderate risk. Approved with conditions.",
-  "Financing Structure Agent":
-    "Based on the health and risk analysis, I propose a structured Murabaha financing package with flexible repayment terms that account for seasonal patterns. This structure ensures fair terms without interest-based penalties.",
-  "Human Review Agent":
-    "After reviewing the full agent debate — including the rebuttal exchange — the agents reached productive consensus. The debate produced a more precise outcome than either agent's initial position alone. Final decision: APPROVED with conditions as specified.",
-  "Baseline (Single Agent)":
-    "DECISION: REQUIRES CLARIFICATION\n\nPROPOSED AMOUNT: Provisional ₦150,000 pending review\n\nRISK SUMMARY: Revenue volatility is high, 30-day activity is low, and uncollected receivables represent significant credit exposure.\n\nREASONING: The merchant shows inconsistent revenue with a sharp spike followed by decline. Activity levels are insufficient to establish reliable repayment capacity. Requesting clarification and additional data before approving.",
-  "ZALYX-001 (School)":
-    "Financial health analysis indicates a viable business with positive revenue trends. Term-fee payment patterns explain apparent seasonal gaps. Recommend approval subject to risk review.",
-};
-
-const MOCK_TOOL_CALLS: Record<string, { name: string; arguments: Record<string, unknown> }> = {
-  "Data Quality Agent": {
-    name: "submit_data_quality_result",
-    arguments: {
-      completeness_score: 92,
-      consistency_score: 88,
-      anomalies: [
-        "₦1.06M uncollected receivables across 17 outstanding orders (42% uncollected rate)",
-        "Only 7 active days in last 30 days vs 17 over 90 days — activity gap present",
-      ],
-      overall_quality_score: 90,
-      proceed_recommendation: "proceed_with_caveats",
-      quality_notes:
-        "Data is largely complete and internally consistent. Main flag is the outstanding receivables concentration and reduced 30-day activity. CBN compliance check: clear. Recommend proceeding to business analysis with receivables caveat noted.",
-    },
-  },
-  "Business Analysis Agent": {
-    name: "submit_business_position",
-    arguments: {
-      monthly_revenue_average: 1432667,
-      revenue_stability_score: 58,
-      business_health_score: 65,
-      profitability_indicator: "moderate",
-      key_strengths: [
-        "May 2026 revenue spike of ₦2.65M — strong term-fee collection cycle for school sector",
-        "17 unique customers in June — healthy customer base for platform age of 58 days",
-        "Zero edit, delete, or backdate rates — no data manipulation signals",
-      ],
-      key_concerns: [
-        "₦1.06M uncollected on 17 orders — receivables collection rate needs monitoring",
-        "7 active days in last 30 days — low engagement between term cycles",
-      ],
-      recommendation:
-        "School sector term-fee pattern explains apparent inactivity. Business fundamentals support a moderate financing offer with receivables covenant.",
-    },
-  },
-  "Risk Assessment Agent": {
-    name: "submit_risk_verdict",
-    arguments: {
-      risk_level: "MODERATE",
-      adjusted_risk_score: 42,
-      key_risk_factors: [
-        "₦1.06M uncollected receivables on 17 outstanding orders (42% of total revenue)",
-        "Only 7 active days in last 30 days — platform engagement concern",
-        "Revenue spike (May ₦2.65M) followed by decline (Jun ₦1.34M) — trend unclear without more data",
-      ],
-      challenge_to_business_analyst:
-        "The Business Analyst's health score of 65/100 does not adequately weight the receivables concentration. Over ₦1M in uncollected payments is significant credit exposure regardless of revenue trajectory. The 7-day activity gap needs explanation before we can be confident about repayment capacity.",
-      conditions_for_approval: [
-        "Demonstrate collection on at least 50% of outstanding receivables before disbursement",
-        "Confirm active business cycle has commenced (15+ active days)",
-        "Monthly check-in for first 3 months post-disbursement",
-      ],
-    },
-  },
-  "Financing Structure Agent": {
-    name: "structure_murabaha_offer",
-    arguments: {
-      min_investment_naira: 91332,
-      max_investment_naira: 182665,
-      principal_naira: 182665,
-      fixed_fee_naira: 32235,
-      fixed_fee_pct: 15,
-      tenor_months: 3,
-      disbursement_conditions: [
-        "Collection of ₦530,000 in outstanding receivables (50% of uncollected balance)",
-        "Confirmation that active business cycle has commenced",
-      ],
-      repayment_schedule_description: "₦35,817–₦71,633/month over 3 months (sale price range: ₦107,450–₦214,900)",
-      structuring_rationale:
-        "Murabaha structure: approved cost price range ₦91,332–₦182,665, tied to a sale price range of ₦107,450–₦214,900. The maximum sale price is 15% of avg monthly GTV (₦1,432,667), moderate risk tier. The merchant chooses any amount inside the range; Zalyx purchases the selected asset at cost price and sells it at the fixed disclosed sale price. Monthly installments range from ₦35,817 to ₦71,633, well within the 20% affordability cap. No interest, no compounding, ownership transfers on asset purchase.",
-    },
-  },
-  "Human Review Agent": {
-    name: "issue_underwriting_decision",
-    arguments: {
-      decision: "approved",
-      approved_amount_naira: 182665,
-      decision_rationale_underwriter:
-        "Agent debate reached productive consensus. Business Analyst identified term-fee seasonality that initially appeared as inactivity risk. Risk Officer moderated after rebuttal, maintaining only the receivables collection requirement. Financing Agent computed an approved cost price range of ₦91,332–₦182,665 from avg monthly GTV (₦1,432,667), moderate risk tier, 15% profit margin, and the affordability cap. Zalyx system prior score of 75/100 Tier B corroborates approval decision.",
-      decision_rationale_merchant:
-        "Your Murabaha financing has been approved for a selectable cost price range of ₦91,332–₦182,665. You choose the amount inside that range, and Zalyx purchases the asset(s) at that cost price, then sells them to you at the fixed disclosed sale price. The sale price range is ₦107,450–₦214,900 over 3 months. Before we purchase the asset(s), we need to see collection on at least half your outstanding receivables.",
-      mandatory_conditions: [
-        "Collect ₦530,000+ in outstanding receivables before disbursal",
-        "Confirm active business cycle has commenced (15+ active days)",
-      ],
-      what_debate_resolved:
-        "A single-agent analysis flagged the 7-day activity gap and volatile revenue as high risk — resulting in 'requires clarification'. The debate allowed the Business Analyst to surface the term-fee payment pattern specific to this merchant type: the May spike and June activity gap are structural, not a decline signal. The Risk Officer accepted this context while maintaining the receivables covenant. Multi-agent debate produced a justified approval that a single LLM call did not reach.",
-    },
-  },
-};
-
 // ── QwenClient ────────────────────────────────────────────────────────────────
 
 export class QwenClient {
   private client: OpenAI | null = null;
   private model: string;
   private temperature: number;
-  readonly mockMode: boolean;
+  readonly mockMode = false;
   private _callCount = 0;
 
   /** Total Qwen API calls made since construction (or last reset). */
@@ -431,14 +315,9 @@ export class QwenClient {
     this.temperature = Number(process.env.QWEN_TEMPERATURE ?? "0");
 
     if (!apiKey || apiKey === "your_qwen_cloud_api_key_here") {
-      console.warn(
-        "⚠️  QWEN_API_KEY not set — running in MOCK mode. Set QWEN_API_KEY in .env for real Qwen Cloud responses."
-      );
-      this.mockMode = true;
-    } else {
-      this.mockMode = false;
-      this.client = new OpenAI({ apiKey, baseURL: apiBase });
+      throw new Error("QWEN_API_KEY is required. Zalyx does not use fake Qwen responses in runtime.");
     }
+    this.client = new OpenAI({ apiKey, baseURL: apiBase });
   }
 
   // ── Retry helper — exponential backoff for rate limits / transient errors ──
@@ -471,14 +350,6 @@ export class QwenClient {
     systemPrompt?: string
   ): Promise<AgentResponse> {
     this._callCount++;
-    if (this.mockMode) {
-      await new Promise((r) => setTimeout(r, 400 + Math.random() * 600));
-      return {
-        message: MOCK_MESSAGES[agentName] ?? `[Mock] ${agentName}: analysis complete.`,
-        agentName,
-        timestamp: new Date().toISOString(),
-      };
-    }
 
     return this.withRetry(async () => {
       const allMessages: AgentMessage[] = systemPrompt
@@ -509,15 +380,6 @@ export class QwenClient {
     forceToolName?: string
   ): Promise<ToolCallResult> {
     this._callCount++;
-    if (this.mockMode) {
-      await new Promise((r) => setTimeout(r, 500 + Math.random() * 700));
-      return {
-        message: MOCK_MESSAGES[agentName] ?? `[Mock] ${agentName}: analysis complete.`,
-        agentName,
-        timestamp: new Date().toISOString(),
-        toolCall: MOCK_TOOL_CALLS[agentName],
-      };
-    }
 
     return this.withRetry(async () => {
       const allMessages: AgentMessage[] = systemPrompt
@@ -593,7 +455,18 @@ export class QwenClient {
   }
 }
 
-// Lazy singleton — constructed on first use so server starts without API key
+export function isQwenConfigured(): boolean {
+  const apiKey = process.env.QWEN_API_KEY;
+  return Boolean(apiKey && apiKey !== "your_qwen_cloud_api_key_here");
+}
+
+export function assertQwenConfigured(): void {
+  if (!isQwenConfigured()) {
+    throw new Error("QWEN_API_KEY is required before starting Zalyx Agent Society.");
+  }
+}
+
+// Lazy singleton — constructed on first use by agents after startup validation.
 let _qwenClient: QwenClient | null = null;
 export const qwenClient = new Proxy({} as QwenClient, {
   get(_target, prop) {

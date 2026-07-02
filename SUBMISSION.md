@@ -130,7 +130,7 @@ Full results: [`benchmark/results.md`](benchmark/results.md)
 | MCP | `@modelcontextprotocol/sdk` v1.29, stdio transport, 3 tools |
 | Backend | Node.js, Express, TypeScript |
 | Frontend | React 19, Vite, react-router-dom, SSE consumer |
-| Persistence | Alibaba Cloud Tablestore (`utils/tablestore.ts`) — mock-first local fallback |
+| Persistence | Alibaba Cloud Tablestore (`utils/tablestore.ts`) plus local JSON decision store for local runs |
 | Infrastructure | Docker, Alibaba Cloud ECS |
 
 ---
@@ -142,14 +142,14 @@ Full results: [`benchmark/results.md`](benchmark/results.md)
 - **Five-agent pipeline with conditional debate.** Stages 1–5 with a debate round (3b/3c) that only fires on genuine agent disagreement — saving LLM calls on clear cases while ensuring contested applications get full adversarial review.
 - **Qwen function calling on every agent.** All five agents use typed Qwen tool calls (`submit_data_quality_result`, `submit_business_position`, `submit_risk_verdict`, `structure_murabaha_offer`, `issue_underwriting_decision`). No string parsing; final financing amounts are deterministic monthly policy outputs.
 - **MCP integration.** A dedicated MCP server (stdio, `@modelcontextprotocol/sdk`) exposes three live-lookup tools that agents call during reasoning — not pre-loaded context but dynamic lookups that change what agents say.
-- **Alibaba Cloud Tablestore.** `utils/tablestore.ts` implements a production-grade persistence layer with two tables (`zalyx_merchants`, `zalyx_decisions`) and a global secondary index (`decision_index` on decision + createdAt) for efficient decision-type queries. The client is mock-first: it auto-detects credential presence and falls back to local JSON, so the demo runs credential-free.
+- **Alibaba Cloud Tablestore.** `utils/tablestore.ts` implements a production-grade persistence layer with two tables (`zalyx_merchants`, `zalyx_decisions`) and a global secondary index (`decision_index` on decision + createdAt) for efficient decision-type queries. Local runs read/write merchant snapshots from `data/snapshots` and decision history from local JSON, while cloud runs use Tablestore.
 - **Deterministic DebateLedger.** The `DebateModerator` (no LLM call) parses debate transcripts into typed `DebateClaim[]` objects — each with `claimId`, evidence, and resolution type — making agent negotiation machine-readable and auditable.
 
 ### Innovation (30%)
 
 - **Agent debate as underwriting infrastructure.** The conditional debate pattern (fire only when agents disagree) is not a demo gimmick — it is a sound architecture for production decisions where false approvals carry real financial cost (₦100k default exposure on a ₦500k offer).
 - **Halal-finance Murabaha engine.** The financing structure is not a loan. Zalyx buys the asset at cost price and sells it at a fixed sale price — no interest, no compounding. The Murabaha engine (`utils/murabaha-engine.ts`) is risk-tier-aware, GTV-anchored, and enforces a 20% installment affordability cap.
-- **Mock-first persistence.** Alibaba Cloud Tablestore activates from environment variables with zero code changes. This pattern lets the same codebase serve local demos, CI, and production without feature flags or mocks embedded in business logic.
+- **Explicit data boundary.** Merchant snapshots are input data. Qwen must be configured for runtime analysis, and the local JSON file is only a decision-history store for development runs.
 
 ### Problem Value (25%)
 

@@ -7,11 +7,13 @@ dotenv.config();
 
 import { AgentOrchestrator } from "./orchestration/agent-orchestrator";
 import { BaselineAgent } from "./agents/baseline-agent";
+import { assertQwenConfigured } from "./utils/qwen-client";
 import { ZalyxMerchantSnapshot, AgentProgressEvent } from "./utils/types";
 import { mcpClient } from "./utils/mcp-client";
 import {
   initTablestore,
-  tablestoreMockMode,
+  tablestoreConfigured,
+  decisionStoreMode,
   getMerchantSnapshot,
   listMerchants,
   saveUnderwritingDecision,
@@ -31,18 +33,20 @@ const baselineAgent = new BaselineAgent();
 
 // ── Health check ─────────────────────────────────────────────────────────────
 app.get("/api/health", (_req: Request, res: Response) => {
-  const aiMock = !process.env.QWEN_API_KEY || process.env.QWEN_API_KEY === "your_qwen_cloud_api_key_here";
   res.json({
     status: "ok",
     ai: {
       provider: "Qwen Cloud",
       model: process.env.QWEN_MODEL || "qwen-max",
-      mockMode: aiMock,
+      mockMode: false,
+      configured: true,
     },
     database: {
       provider: "Alibaba Cloud Tablestore",
       instance: process.env.OTS_INSTANCE || null,
-      mockMode: tablestoreMockMode,
+      mockMode: false,
+      merchantSource: tablestoreConfigured ? "tablestore" : "local-files",
+      decisionStore: decisionStoreMode,
     },
     timestamp: new Date().toISOString(),
   });
@@ -67,6 +71,22 @@ app.get("/api/merchants/:id", async (req: Request, res: Response) => {
     res.json(snapshot);
   } catch (err: any) {
     res.status(500).json({ error: err?.message || "Failed to load merchant" });
+  }
+});
+
+app.post("/api/merchants", async (req: Request, res: Response) => {
+  try {
+    const snapshot: ZalyxMerchantSnapshot = req.body;
+    if (!snapshot.id || !snapshot.businessName || !snapshot.signals || !snapshot.monthlyRevenue) {
+      res.status(400).json({
+        error: "Invalid snapshot. Required: id, businessName, businessType, ageInDays, orders, receivables, monthlyRevenue[], signals",
+      });
+      return;
+    }
+    await saveMerchantSnapshot(snapshot);
+    res.status(201).json(snapshot);
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || "Failed to save merchant" });
   }
 });
 
@@ -207,21 +227,23 @@ const PORT = parseInt(process.env.PORT || "3001", 10);
 
 (async () => {
   console.log("\n🔧 Initialising services (Qwen Cloud + Alibaba Cloud Tablestore)...");
+  assertQwenConfigured();
   await initTablestore();
 
   app.listen(PORT, () => {
-    const aiMock = !process.env.QWEN_API_KEY || process.env.QWEN_API_KEY === "your_qwen_cloud_api_key_here";
     console.log(`\n🚀 Zalyx Agent Society API running on http://localhost:${PORT}`);
     console.log(`   POST /api/underwrite        — Run full agent debate`);
     console.log(`   POST /api/underwrite/stream — SSE streaming (live agent progress)`);
     console.log(`   POST /api/baseline          — Single-agent baseline comparison`);
     console.log(`   GET  /api/merchants         — List merchants`);
     console.log(`   GET  /api/merchants/:id     — Load merchant snapshot`);
+    console.log(`   POST /api/merchants         — Save merchant snapshot`);
     console.log(`   GET  /api/decisions/:id     — Past decisions for a merchant`);
     console.log(`   GET  /api/decisions?type=   — Query by decision type (secondary index)`);
     console.log(`   GET  /api/health            — Health check`);
-    console.log(aiMock ? `\n   ⚠️  AI MOCK MODE (add QWEN_API_KEY to .env)` : `\n   ✅ Qwen Cloud (${process.env.QWEN_MODEL || "qwen-max"})`);
-    console.log(tablestoreMockMode ? `   ⚠️  Tablestore MOCK MODE (reading local JSON)` : `   ✅ Alibaba Cloud Tablestore (${process.env.OTS_INSTANCE})`);
+    console.log(`\n   ✅ Qwen Cloud (${process.env.QWEN_MODEL || "qwen-max"})`);
+    console.log(tablestoreConfigured ? `   ✅ Merchant source: Alibaba Cloud Tablestore (${process.env.OTS_INSTANCE})` : `   ✅ Merchant source: local snapshot files`);
+    console.log(`   ✅ Decision store: ${decisionStoreMode}`);
   });
 })();
 

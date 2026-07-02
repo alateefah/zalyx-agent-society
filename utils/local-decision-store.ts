@@ -1,6 +1,10 @@
 /**
- * Local JSON decisions store — used only in Tablestore mock mode so the full
- * demo (history, list-by-type) works without Alibaba Cloud credentials.
+ * Local JSON decision store.
+ *
+ * This is a lightweight development store for underwriting outputs. Merchant
+ * snapshots live in the local snapshots directory for local runs; this file
+ * preserves decision history when a local run is not writing decisions to
+ * Alibaba Cloud Tablestore.
  */
 import fs from "fs";
 import path from "path";
@@ -17,7 +21,7 @@ export interface StoredDecision {
 }
 
 function filePath(): string {
-  return process.env.OTS_DECISIONS_FILE || path.join(process.cwd(), "data", "decisions.local.json");
+  return process.env.LOCAL_DECISIONS_FILE || path.join(process.cwd(), "data", "decisions.local.json");
 }
 
 export function readLocalDecisions(): StoredDecision[] {
