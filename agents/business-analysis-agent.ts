@@ -93,11 +93,11 @@ Speak with domain expertise. Be specific about the numbers.
       : null;
 
     const result: BusinessAnalysisResult = {
-      monthlyRevenueAverage: tc?.monthly_revenue_average ?? analysis.monthlyRevenueAverage,
-      revenueStability: tc?.revenue_stability_score ?? analysis.revenueStability,
+      monthlyRevenueAverage: analysis.monthlyRevenueAverage,
+      revenueStability: analysis.revenueStability,
       transactionFrequency: snapshot.signals.period90d.totalOrders,
       profitabilityIndicator: tc?.profitability_indicator ?? (analysis.completionRate > 80 ? "positive" : analysis.completionRate > 50 ? "neutral" : "negative"),
-      businessHealthScore: tc?.business_health_score ?? analysis.businessHealthScore,
+      businessHealthScore: analysis.businessHealthScore,
       recommendation: tc?.recommendation ?? (
         analysis.businessHealthScore > 70
           ? "Strong candidate — approve subject to risk review"

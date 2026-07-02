@@ -40,9 +40,10 @@ The product is organized around merchant workspaces. Underwriters can search the
 Zalyx does not lend money. It purchases assets on the merchant's behalf at a disclosed cost price, then sells those assets to the merchant at a fixed sale price. The difference is Zalyx's profit margin — no interest, no compounding, no late fees.
 
 ```
-Sale price  = % of merchant's avg monthly GTV (risk-tiered)
-Cost price  = sale price × (1 − profit margin)
-Installment = sale price ÷ tenor months
+Max sale price = % of merchant's avg monthly GTV (risk-tiered)
+Min sale price = 50% of max sale price
+Cost price     = selected sale price × (1 − profit margin)
+Installment    = selected sale price ÷ tenor months
 ```
 
 | Risk tier | GTV offer | Tenor | Profit margin |
@@ -52,13 +53,17 @@ Installment = sale price ÷ tenor months
 | High (65–80) | 5% of avg monthly GTV | 2 months | 20% |
 | Very high (80+) | Rejected | — | — |
 
-Affordability cap: monthly installment must be ≤ 20% of avg monthly GTV. If it exceeds that, the sale price is reduced until it fits.
+Affordability cap: monthly installment must be ≤ 20% of avg monthly GTV. If the maximum sale price exceeds that, the cap is reduced until it fits.
+
+The output is an approved **investment range**, not a model-picked single amount. The maximum is the largest exposure Zalyx will approve under policy; the minimum is a smaller customer-selectable ticket. The merchant can choose any amount inside the range, and the Murabaha sale price/profit are computed from the selected amount.
+
+Offer cadence: Zalyx treats this as a **monthly review**, similar to a real cash-advance offer. The range is fixed for the latest completed monthly data period and remains valid until the next review window. Rerunning underwriting inside the same period should explain the same range, not search for a better amount.
 
 **Conditional debate round**
 The debate round (Stage 3b/3c) only fires when the Business Analyst's health score > 55 AND the Risk Officer's score > 35 — i.e. when agents genuinely disagree. Clear approvals and clear rejections skip it, saving LLM calls.
 
-**All 5 agents use Qwen function calling**
-Every agent submits its output via a structured tool call rather than prose:
+**Structured Qwen calls with policy-owned money fields**
+Every model-backed agent submits its output via a structured tool call rather than prose:
 
 | Agent | Tool |
 |---|---|
@@ -68,7 +73,7 @@ Every agent submits its output via a structured tool call rather than prose:
 | Financing Structure | `structure_murabaha_offer` |
 | Human Review | `issue_underwriting_decision` |
 
-This means every field in the final report — scores, risk factors, Murabaha terms, disbursement conditions — comes from a structured JSON argument, not string parsing.
+This keeps agent evidence auditable: scores, risk factors, recommendations, and conditions are read from typed JSON arguments instead of scraped prose. The financing amounts are deliberately stricter: the min/max Murabaha range is computed by the deterministic policy engine, and Qwen is only allowed to explain the structure and conditions.
 
 **MCP integration**
 A dedicated MCP server (stdio transport, `@modelcontextprotocol/sdk`) exposes three tools that agents call during reasoning — not just pre-loaded context but live lookups that change what the agents say:
@@ -223,8 +228,8 @@ Three real anonymized Zalyx merchants with different risk profiles:
 | ID | Business type | Baseline | Multi-agent |
 |---|---|---|---|
 | ZALYX-001 | School | requires-clarification | **Approved** — debate surfaces term-fee seasonality |
-| ZALYX-002 | Natural skin & hair | requires-clarification | **Approved** — MCP sector benchmarks contextualise low GTV |
-| ZALYX-003 | Freelancer | requires-clarification | **Approved** — high sector default rate (23.6%) covenanted into terms |
+| ZALYX-002 | Natural skin & hair | requires-clarification | **Requires clarification** — MCP sector benchmarks keep the range pending |
+| ZALYX-003 | Freelancer | requires-clarification | **Rejected** — weak recent activity and high sector default rate are not overridden |
 
 The decision quality difference is in the output structure: the multi-agent pipeline produces a formal `DebateResolution` record, typed `DebateLedger` claims, Murabaha installment schedule, and `RunObservability` for every run. The baseline produces a paragraph.
 
@@ -233,17 +238,17 @@ The decision quality difference is in the output structure: the multi-agent pipe
 | Metric | Value |
 |---|---|
 | Merchants benchmarked | 3 |
-| Decisions that differed (baseline vs multi-agent) | **3/3** |
-| Debate round fired | **3/3** merchants |
-| Total structured risk factors surfaced | 9 |
+| Decisions that differed (baseline vs multi-agent) | **2/3** |
+| Debate round fired | **1/3** merchants |
+| Total structured risk factors surfaced | 12 |
 | Avg structured output completeness | **100%** |
-| Avg actionability score | **100/100** |
-| Avg baseline latency | 0.5s |
-| Avg multi-agent latency | 5.6s |
+| Avg actionability score | **73/100** |
+| Avg baseline latency | 0.9s |
+| Avg multi-agent latency | 4.0s |
 | Qwen function calls per run | 8 (all 5 agents use structured tool output) |
 | MCP calls per run | 3 (CBN compliance + sector benchmarks + default rate) |
 
-Full per-merchant breakdown: [`benchmark/results.md`](benchmark/results.md) · raw data: [`benchmark/results.json`](benchmark/results.json)
+Full per-merchant breakdown: [`benchmark/results.md`](benchmark/results.md). Raw JSON is generated locally and git-ignored.
 
 Run yourself: `yarn benchmark`
 
@@ -306,7 +311,7 @@ Filter decisions across all merchants by decision type (e.g. `approved`, `reject
 
 ## Qwen Cloud integration
 
-All five agents use `chatWithTools()` against Qwen Cloud's DashScope-compatible chat completions endpoint with a typed tool definition. Qwen returns a `tool_calls` object; the orchestrator reads `tool_calls[0].function.arguments` as structured JSON:
+All five model-backed stages call `chatWithTools()` against Qwen Cloud's DashScope-compatible chat completions endpoint with typed tool definitions. Qwen returns a `tool_calls` object; the orchestrator reads `tool_calls[0].function.arguments` as structured JSON:
 
 ```typescript
 const response = await client.chat.completions.create({
@@ -320,6 +325,8 @@ const args = JSON.parse(
 );
 // → { risk_score: 42, risk_factors: [...], recommendation: "approve_with_conditions" }
 ```
+
+For financing, the numeric range is not taken from the model. `utils/policy-metrics.ts` computes deterministic monthly policy inputs from the merchant snapshot, and `utils/murabaha-engine.ts` computes the approved min/max range from GTV, risk tier, tenor, margin, and affordability policy. Qwen explains the terms and disbursement conditions around that fixed range.
 
 The MCP server runs as a stdio child process. Agents call it mid-reasoning:
 
@@ -366,7 +373,7 @@ zalyx-agent-society/
 ├── benchmark/
 │   ├── run.ts                       # Benchmark runner (yarn benchmark)
 │   ├── results.md                   # Committed benchmark results
-│   └── results.json                 # Raw benchmark data
+│   └── results.json                 # Local generated raw data (git-ignored)
 ├── data/
 │   ├── snapshots/                   # Anonymized merchant JSON snapshots (mock merchants)
 │   └── decisions.local.json         # Local decision store (mock persistence, git-ignored)

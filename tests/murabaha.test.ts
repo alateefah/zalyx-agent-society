@@ -13,6 +13,7 @@ import {
   RISK_TIER_POLICY,
   AFFORDABILITY_CAP,
   MINIMUM_SALE_PRICE,
+  MIN_OFFER_PCT_OF_MAX,
 } from "../utils/murabaha-engine";
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
@@ -83,6 +84,37 @@ describe("GTV-based sale price", () => {
     const small = computeMurabahaStructure({ avgMonthlyGTV: 500_000,   riskScore: 50 });
     const large = computeMurabahaStructure({ avgMonthlyGTV: 10_000_000, riskScore: 50 });
     expect(large.salePriceNaira).toBe(small.salePriceNaira * 20);
+  });
+});
+
+// ── Customer-selectable offer range ──────────────────────────────────────────
+
+describe("Customer-selectable offer range", () => {
+  test("max sale price preserves the risk-tier GTV cap", () => {
+    const result = computeMurabahaStructure({ avgMonthlyGTV: 1_000_000, riskScore: 50 });
+    expect(result.maxSalePriceNaira).toBe(150_000);
+    expect(result.salePriceNaira).toBe(result.maxSalePriceNaira);
+  });
+
+  test("min sale price is a deterministic percentage of max", () => {
+    const result = computeMurabahaStructure({ avgMonthlyGTV: 1_000_000, riskScore: 50 });
+    expect(result.minSalePriceNaira).toBe(Math.round(result.maxSalePriceNaira * MIN_OFFER_PCT_OF_MAX));
+    expect(result.minSalePriceNaira).toBeLessThan(result.maxSalePriceNaira);
+  });
+
+  test("cost price range maps cleanly to sale price range", () => {
+    const result = computeMurabahaStructure(MODERATE_RISK_INPUT);
+    expect(result.minCostPriceNaira + result.minProfitNaira).toBe(result.minSalePriceNaira);
+    expect(result.maxCostPriceNaira + result.maxProfitNaira).toBe(result.maxSalePriceNaira);
+    expect(result.recommendedCostPriceNaira).toBe(result.maxCostPriceNaira);
+  });
+
+  test("same input always returns the same range", () => {
+    const a = computeMurabahaStructure(MODERATE_RISK_INPUT);
+    const b = computeMurabahaStructure(MODERATE_RISK_INPUT);
+    expect(a.minCostPriceNaira).toBe(b.minCostPriceNaira);
+    expect(a.maxCostPriceNaira).toBe(b.maxCostPriceNaira);
+    expect(a.maxSalePriceNaira).toBe(b.maxSalePriceNaira);
   });
 });
 

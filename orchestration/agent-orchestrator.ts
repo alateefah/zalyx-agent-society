@@ -188,6 +188,17 @@ export class AgentOrchestrator {
       console.log("⏭️  Stage 4: Skipped — risk too high for financing");
       financingStructure = {
         proposedAmount: "₦0",
+        offerRange: {
+          minCostPriceNaira: 0,
+          maxCostPriceNaira: 0,
+          recommendedCostPriceNaira: 0,
+          minSalePriceNaira: 0,
+          maxSalePriceNaira: 0,
+          recommendedSalePriceNaira: 0,
+          profitMarginPct: 0,
+          tenorMonths: 0,
+          customerSelectable: false,
+        },
         repaymentTerms: "N/A — application not approved",
         paymentSchedule: "N/A",
         riskMitigation: [],
@@ -258,12 +269,20 @@ export class AgentOrchestrator {
         deltaType = "multi_more_permissive";
       }
 
+      const fmt = (n: number) => `₦${n.toLocaleString("en-NG", { maximumFractionDigits: 0 })}`;
+      const range = financingStructure.offerRange?.customerSelectable
+        ? financingStructure.offerRange
+        : undefined;
+      const rangeSummary = range
+        ? `Murabaha policy engine: investment range ${fmt(range.minCostPriceNaira)}–${fmt(range.maxCostPriceNaira)} (${range.reviewPeriod ?? "monthly"} review${range.validUntil ? `, valid through ${range.validUntil}` : ""})`
+        : "Murabaha policy engine: no investment range approved";
+
       const valueAdded: string[] = [
         `CBN compliance check via MCP (${riskAssessment.riskFactors.length} structured risk factors)`,
         `Sector benchmark lookup via MCP (GTV vs industry average)`,
         `Portfolio default rate via MCP (${snapshot.businessType} sector)`,
         `Formal debate round: ${debating ? "fired — " + (debateLedger?.totalClaims ?? 0) + " claims negotiated" : "skipped — agents aligned"}`,
-        `Murabaha policy engine: sale price ₦${humanReview.approvalAmount || "N/A"} from GTV`,
+        rangeSummary,
         `DebateLedger: ${debateLedger?.totalClaims ?? 0} structured claims with typed resolutions`,
         `RunObservability: request ID, per-agent timing, Qwen + MCP call counts`,
       ];
@@ -283,7 +302,7 @@ export class AgentOrchestrator {
         reason,
         valueAdded,
         structuredOutputAdvantage:
-          "Baseline: decision + prose reasoning. Multi-agent: DataQualityResult, BusinessAnalysisResult, RiskAssessmentResult (with riskFactors[]), FinancingStructureResult (Murabaha terms), HumanReviewResult, DebateTranscript, DebateLedger (typed claims), DebateResolution, RunObservability — all structured, all auditable.",
+          "Baseline: decision + prose reasoning. Multi-agent: DataQualityResult, BusinessAnalysisResult, RiskAssessmentResult (with riskFactors[]), FinancingStructureResult (fixed monthly Murabaha range), HumanReviewResult, DebateTranscript, DebateLedger (typed claims), DebateResolution, RunObservability — all structured, all auditable.",
         baselineExecutionTime: baselineResult.executionTime,
         multiAgentExecutionTime: executionTime,
       };

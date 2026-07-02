@@ -23,6 +23,15 @@ const DECISION_COLOR: Record<string, string> = {
   "requires-clarification": "var(--amber)",
 };
 
+function decisionAmountLabel(summary: DecisionSummary): string {
+  if (summary.approvedRange?.customerSelectable) {
+    return `${fmt(summary.approvedRange.minCostPriceNaira)}–${fmt(summary.approvedRange.maxCostPriceNaira)}`;
+  }
+  return summary.approvedAmountNaira && summary.approvedAmountNaira > 0
+    ? fmt(summary.approvedAmountNaira)
+    : "—";
+}
+
 export function MerchantWorkspace() {
   const { merchantId } = useParams<{ merchantId: string }>();
   const navigate = useNavigate();
@@ -182,7 +191,7 @@ export function MerchantWorkspace() {
                   </span>
                   <span style={{
                     fontSize: 11, color: "var(--text-3)",
-                    background: "rgba(255,255,255,0.04)", padding: "2px 8px", borderRadius: 20,
+                    background: "var(--surface-2)", padding: "2px 8px", borderRadius: 20,
                     border: "1px solid var(--border)",
                   }}>
                     {merchant.businessType}
@@ -190,7 +199,7 @@ export function MerchantWorkspace() {
                   {merchant.existingDecision && (
                     <span style={{
                       fontSize: 11, fontWeight: 600,
-                      background: "rgba(34,197,94,0.1)", color: "var(--green)",
+                      background: "rgba(21,128,61,0.09)", color: "var(--green)",
                       padding: "2px 8px", borderRadius: 20,
                     }}>
                       Tier {merchant.existingDecision.tier}
@@ -211,7 +220,7 @@ export function MerchantWorkspace() {
                 disabled={isRunning}
                 style={{ flexShrink: 0, width: "auto", alignSelf: "flex-start" }}
               >
-                <Zap size={14} /> Run new underwriting
+                <Zap size={14} /> Run monthly review
               </button>
             </div>
 
@@ -250,7 +259,7 @@ export function MerchantWorkspace() {
                 </div>
               ) : (
                 <div className="form-card" style={{ padding: "16px", color: "var(--text-3)", fontSize: 13 }}>
-                  No existing score — run underwriting to generate one.
+                  No existing score — run monthly review to generate one.
                 </div>
               )}
 
@@ -265,11 +274,9 @@ export function MerchantWorkspace() {
                       }}>
                         {latest.decision}
                       </span>
-                      {latest.approvedAmountNaira != null && latest.approvedAmountNaira > 0 && (
-                        <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text-1)" }}>
-                          {fmt(latest.approvedAmountNaira)}
-                        </span>
-                      )}
+                      <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text-1)" }}>
+                        {decisionAmountLabel(latest)}
+                      </span>
                     </div>
                     <div style={{ fontSize: 11, color: "var(--text-3)", marginBottom: 10 }}>
                       {fmtDate(latest.createdAt)} at {fmtTime(latest.createdAt)}
@@ -295,7 +302,7 @@ export function MerchantWorkspace() {
 
             {summaries.length === 0 ? (
               <div className="form-card" style={{ padding: "24px", color: "var(--text-3)", fontSize: 13, textAlign: "center" }}>
-                No decisions yet — run underwriting to create the first one.
+                No decisions yet — run monthly review to create the first one.
               </div>
             ) : (
               <div style={{ borderRadius: "var(--radius-md)", overflow: "hidden", border: "1px solid var(--border)" }}>
@@ -335,7 +342,7 @@ export function MerchantWorkspace() {
                           </span>
                         </td>
                         <td style={{ padding: "11px 14px", fontSize: 13, color: "var(--text-1)" }}>
-                          {s.approvedAmountNaira && s.approvedAmountNaira > 0 ? fmt(s.approvedAmountNaira) : "—"}
+                          {decisionAmountLabel(s)}
                         </td>
                         <td style={{ padding: "11px 14px", fontSize: 12, color: "var(--text-3)" }}>
                           {s.executionTime ?? "—"}

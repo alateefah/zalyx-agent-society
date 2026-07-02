@@ -64,7 +64,7 @@ flowchart LR
 | 1 + 2 | Data Quality and Business Analysis run concurrently | Integrity score, compliance result, and sector-relative business position |
 | 3 | Risk Assessment challenges the business position | Typed verdict grounded by an MCP default-rate lookup |
 | 3b + 3c | Runs only when health is above 55 and risk is above 35 | Rebuttal, final verdict, and deterministic DebateLedger |
-| 4 | Skipped at the very-high-risk gate | Murabaha terms with risk-tier pricing and affordability cap |
+| 4 | Skipped at the very-high-risk gate | Deterministic monthly Murabaha min/max range with risk-tier pricing, affordability cap, and review-window validity |
 | 5 | Human Review synthesizes all evidence | Final decision, conditions, and audit-ready rationale |
 
 The single-agent baseline starts alongside the society run. Its result is
@@ -97,7 +97,7 @@ contracts, and the final report includes:
 
 - Agent score objects and debate transcript
 - `DebateResolution` and claim-level `DebateLedger`
-- Deterministic `FinancingStructureResult`
+- Deterministic `FinancingStructureResult` with a customer-selectable min/max investment range and monthly review window
 - Baseline `DecisionDelta`
 - `RunObservability` with request ID, model, call counts, timings, and gates
 

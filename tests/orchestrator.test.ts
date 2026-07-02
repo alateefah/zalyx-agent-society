@@ -108,6 +108,7 @@ describe("AgentOrchestrator — debate trigger logic", () => {
 
     expect(report.financingStructure).toBeDefined();
     expect(typeof report.financingStructure.proposedAmount).toBe("string");
+    expect(report.financingStructure.offerRange).toBeDefined();
 
     expect(report.humanReview).toBeDefined();
     expect(report.humanReview.finalRecommendation).toBeDefined();

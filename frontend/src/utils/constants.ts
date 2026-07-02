@@ -74,19 +74,19 @@ export const DEMO_MERCHANTS: Record<string, ZalyxMerchantSnapshot> = {
 // ── Agent display metadata ─────────────────────────────────────────────────────
 
 export const AGENT_META: Record<string, { color: string; Icon: React.ComponentType<{ size?: number; color?: string }> }> = {
-  "Data Quality Agent":        { color: "#6366f1", Icon: ShieldCheck },
-  "Business Analysis Agent":   { color: "#22c55e", Icon: TrendingUp },
-  "Risk Assessment Agent":     { color: "#f59e0b", Icon: AlertTriangle },
-  "Financing Structure Agent": { color: "#3b82f6", Icon: Landmark },
-  "Human Review Agent":        { color: "#a78bfa", Icon: UserCheck },
+  "Data Quality Agent":        { color: "#2563eb", Icon: ShieldCheck },
+  "Business Analysis Agent":   { color: "#0f766e", Icon: TrendingUp },
+  "Risk Assessment Agent":     { color: "#b45309", Icon: AlertTriangle },
+  "Financing Structure Agent": { color: "#475569", Icon: Landmark },
+  "Human Review Agent":        { color: "#6b7280", Icon: UserCheck },
 };
 
 export const MSG_TYPE_STYLE: Record<string, { label: string; color: string; bg: string }> = {
-  position:  { label: "Position",  color: "#22c55e", bg: "rgba(34,197,94,0.12)"  },
-  challenge: { label: "Challenge", color: "#f59e0b", bg: "rgba(245,158,11,0.12)" },
-  rebuttal:  { label: "Rebuttal",  color: "#22c55e", bg: "rgba(34,197,94,0.08)"  },
-  verdict:   { label: "Verdict",   color: "#ef4444", bg: "rgba(239,68,68,0.1)"   },
-  summary:   { label: "Summary",   color: "#a78bfa", bg: "rgba(167,139,250,0.12)"},
+  position:  { label: "Position",  color: "#0f766e", bg: "rgba(15,118,110,0.09)" },
+  challenge: { label: "Challenge", color: "#b45309", bg: "rgba(180,83,9,0.1)" },
+  rebuttal:  { label: "Rebuttal",  color: "#0f766e", bg: "rgba(15,118,110,0.08)" },
+  verdict:   { label: "Verdict",   color: "#b91c1c", bg: "rgba(185,28,28,0.08)" },
+  summary:   { label: "Summary",   color: "#475569", bg: "rgba(71,85,105,0.1)" },
 };
 
 // ── Business type → risk label mapping ───────────────────────────────────────

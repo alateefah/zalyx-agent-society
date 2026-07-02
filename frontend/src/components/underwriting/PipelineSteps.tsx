@@ -4,7 +4,7 @@ const STEPS = [
   { n: 1, name: "Data Quality",  desc: "Validates completeness, flags anomalies",   Icon: ShieldCheck  },
   { n: 2, name: "Business",      desc: "Revenue health & viability",                Icon: TrendingUp   },
   { n: 3, name: "Risk",          desc: "Challenges assumptions, flags volatility",  Icon: AlertTriangle },
-  { n: 4, name: "Financing",     desc: "Structures Murabaha-compliant offer",       Icon: Landmark     },
+  { n: 4, name: "Financing",     desc: "Sets monthly Murabaha range",               Icon: Landmark     },
   { n: 5, name: "Human Review",  desc: "Synthesises debate, issues final decision", Icon: UserCheck    },
 ];
 

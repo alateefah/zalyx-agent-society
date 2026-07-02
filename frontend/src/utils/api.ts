@@ -1,4 +1,4 @@
-import { API_BASE } from "./constants";
+import { API_BASE, DEMO_MERCHANTS } from "./constants";
 import type {
   ZalyxMerchantSnapshot,
   UnderwritingReport,
@@ -7,6 +7,10 @@ import type {
   DecisionSummary,
   AgentProgressEvent,
 } from "../types";
+
+function demoMerchantById(merchantId: string): ZalyxMerchantSnapshot | undefined {
+  return Object.values(DEMO_MERCHANTS).find((m) => m.id === merchantId);
+}
 
 export async function fetchHealth(): Promise<{ mockMode: boolean }> {
   const r = await fetch(`${API_BASE}/api/health`);
@@ -38,9 +42,24 @@ export async function fetchDecisionHistory(merchantId: string): Promise<Decision
 
 /** Fetch a single merchant by ID from the dedicated endpoint. */
 export async function fetchMerchantById(merchantId: string): Promise<ZalyxMerchantSnapshot> {
-  const r = await fetch(`${API_BASE}/api/merchants/${encodeURIComponent(merchantId)}`);
-  if (r.status === 404) throw new Error(`Merchant ${merchantId} not found`);
-  if (!r.ok) throw new Error("Failed to load merchant");
+  let r: Response;
+  try {
+    r = await fetch(`${API_BASE}/api/merchants/${encodeURIComponent(merchantId)}`);
+  } catch {
+    const demo = demoMerchantById(merchantId);
+    if (demo) return demo;
+    throw new Error("Failed to load merchant");
+  }
+  if (r.status === 404) {
+    const demo = demoMerchantById(merchantId);
+    if (demo) return demo;
+    throw new Error(`Merchant ${merchantId} not found`);
+  }
+  if (!r.ok) {
+    const demo = demoMerchantById(merchantId);
+    if (demo) return demo;
+    throw new Error("Failed to load merchant");
+  }
   return r.json();
 }
 

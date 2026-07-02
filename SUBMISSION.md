@@ -67,7 +67,7 @@ Returns Zalyx's historical default rates for this exact sector + risk tier combi
 ### Qwen Cloud API usage
 
 - **DashScope-compatible chat completions** — all model-backed agents call Qwen Cloud through `utils/qwen-client.ts`
-- **Function calling on every agent** — Data Quality, Business Analysis, Risk Assessment, Financing Structure, and Human Review return structured JSON via Qwen tool calls (`submit_data_quality_result`, `submit_business_position`, `submit_risk_verdict`, `structure_murabaha_offer`, `issue_underwriting_decision`)
+- **Structured Qwen calls plus deterministic money policy** — Data Quality, Business Analysis, Risk Assessment, Financing Structure, and Human Review use typed Qwen tool calls (`submit_data_quality_result`, `submit_business_position`, `submit_risk_verdict`, `structure_murabaha_offer`, `issue_underwriting_decision`). The approved Murabaha min/max range is computed by policy code, not selected by the model.
 - **SSE streaming** — the frontend consumes a live stream of agent progress events as each stage completes, so users watch the debate unfold in real time rather than waiting for a full result
 
 ### Murabaha financing logic
@@ -75,15 +75,18 @@ Returns Zalyx's historical default rates for this exact sector + risk tier combi
 The financing amount is not derived from merchant revenue. It is what Zalyx decides to extend, anchored to the merchant's GTV:
 
 ```
-Sale price  = risk_tier_pct × avg monthly GTV
-              (25% low risk / 15% moderate / 5% high)
-Cost price  = sale price × (1 − profit margin)
-              (10% / 15% / 20% by tier)
-Installment = sale price ÷ tenor months
+Max sale price = risk_tier_pct × avg monthly GTV
+                 (25% low risk / 15% moderate / 5% high)
+Min sale price = 50% of max sale price
+Cost price     = selected sale price × (1 − profit margin)
+                 (10% / 15% / 20% by tier)
+Installment    = selected sale price ÷ tenor months
 Affordability cap: installment ≤ 20% of monthly GTV
 ```
 
-A merchant doing ₦10M/month at moderate risk gets a sale price offer of ₦1.5M. Zalyx buys the asset at ₦1.27M (cost price) and sells to the merchant at ₦1.5M (sale price) — the ₦225k difference is Zalyx's disclosed profit, not interest. The merchant repays ₦500k/month over 3 months.
+A merchant doing ₦10M/month at moderate risk gets a maximum sale price cap of ₦1.5M and a minimum selectable sale price of ₦750k. Zalyx buys the selected asset at cost price and sells to the merchant at the selected fixed sale price — the difference is Zalyx's disclosed profit, not interest. This avoids a model-picked “lotto” amount: the agent explains risk, while the deterministic policy defines the approved range.
+
+The range is issued on a monthly review cadence using the latest completed monthly data period. Within that period, rerunning the agents should explain the same approved range; the offer changes only when merchant data refreshes, risk policy changes, or a new review window opens.
 
 ---
 
@@ -95,25 +98,25 @@ The point of multi-agent underwriting is not always a different *outcome* — it
 Both approaches may reach approval. What differs: the single agent produces one paragraph of reasoning. The multi-agent pipeline produces a formal `DebateResolution` record showing *why* the Business Analyst defended the term-fee seasonality pattern, *why* the Risk Agent accepted it, and *what disbursement conditions were negotiated*. The `observability` object records every Qwen call and MCP lookup. A loan officer can read the transcript and understand exactly how the decision was reached.
 
 **ZALYX-002 (natural products)**
-A low-volume merchant with limited platform history. Single agent often hedges with "requires clarification". The multi-agent pipeline — with MCP sector benchmarks for comparison — surfaces whether the GTV is low for the sector or just low for Zalyx's merchant base. The distinction changes both the decision and the financing offer size.
+A low-volume merchant with limited platform history. Single agent hedges with "requires clarification". The multi-agent pipeline reaches the same decision, but produces a stronger artifact: sector benchmark evidence, explicit risk factors, and a deterministic range that remains pending until clarification is resolved.
 
 **ZALYX-003 (freelancer)**
-The baseline usually hedges because the profile has weak recent activity and high receivables pressure. The multi-agent pipeline approves only with tight covenants: MCP default-rate evidence, explicit risk factors with naira amounts, and conditions under which the offer remains acceptable. A generic paragraph is not useful to the merchant or to a compliance audit. A structured conditional approval is.
+The baseline hedges because the profile has weak recent activity and high receivables pressure. The multi-agent pipeline is more decisive: it rejects the application because zero recent active days and high sector default-rate evidence are not enough for a defensible approval. A generic paragraph is not useful to the merchant or to a compliance audit; a structured rejection with evidence is.
 
 **The measurable efficiency gain (Track 3) — committed results in `benchmark/results.md`**
 
 | Metric | Baseline | Multi-Agent |
 |---|---|---|
-| Decisions (all 3 merchants) | requires-clarification × 3 | **approved** × 3 |
+| Decisions (all 3 merchants) | requires-clarification × 3 | **approved × 1 / clarification × 1 / rejected × 1** |
 | Structured output completeness | ~50% (prose only) | **100%** |
-| Actionability score | — | **100/100** |
-| Risk factors surfaced | unstructured prose | **9 structured items** (3/merchant) |
-| Debate round fired | N/A | **3/3** merchants |
-| Qwen calls | 1 | 8 (all 5 agents, function calling) |
+| Actionability score | — | **73/100** |
+| Risk factors surfaced | unstructured prose | **12 structured items** |
+| Debate round fired | N/A | **1/3** merchants |
+| Qwen calls | 1 | 2–4 per merchant (5-agent path, debate only when needed) |
 | MCP calls | 0 | 3 (CBN + sector benchmarks + default rate) |
-| Avg latency | 0.5s | 5.6s |
+| Avg latency | 0.9s | 4.0s |
 
-The latency tradeoff is intentional: a false approval on a ₦500k Murabaha offer costs Zalyx ~₦100k in default exposure. 5.6s of structured multi-agent debate with an auditable transcript is a sound tradeoff for production underwriting.
+The latency tradeoff is intentional: a false approval on a ₦500k Murabaha offer costs Zalyx ~₦100k in default exposure. 4.0s of structured multi-agent review with an auditable transcript is a sound tradeoff for production underwriting.
 
 Full results: [`benchmark/results.md`](benchmark/results.md)
 
@@ -137,7 +140,7 @@ Full results: [`benchmark/results.md`](benchmark/results.md)
 ### Technical Depth (30%)
 
 - **Five-agent pipeline with conditional debate.** Stages 1–5 with a debate round (3b/3c) that only fires on genuine agent disagreement — saving LLM calls on clear cases while ensuring contested applications get full adversarial review.
-- **Qwen function calling on every agent.** All five agents return structured JSON via typed Qwen tool calls (`submit_data_quality_result`, `submit_business_position`, `submit_risk_verdict`, `structure_murabaha_offer`, `issue_underwriting_decision`). No string parsing.
+- **Qwen function calling on every agent.** All five agents use typed Qwen tool calls (`submit_data_quality_result`, `submit_business_position`, `submit_risk_verdict`, `structure_murabaha_offer`, `issue_underwriting_decision`). No string parsing; final financing amounts are deterministic monthly policy outputs.
 - **MCP integration.** A dedicated MCP server (stdio, `@modelcontextprotocol/sdk`) exposes three live-lookup tools that agents call during reasoning — not pre-loaded context but dynamic lookups that change what agents say.
 - **Alibaba Cloud Tablestore.** `utils/tablestore.ts` implements a production-grade persistence layer with two tables (`zalyx_merchants`, `zalyx_decisions`) and a global secondary index (`decision_index` on decision + createdAt) for efficient decision-type queries. The client is mock-first: it auto-detects credential presence and falls back to local JSON, so the demo runs credential-free.
 - **Deterministic DebateLedger.** The `DebateModerator` (no LLM call) parses debate transcripts into typed `DebateClaim[]` objects — each with `claimId`, evidence, and resolution type — making agent negotiation machine-readable and auditable.

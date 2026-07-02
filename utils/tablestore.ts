@@ -14,7 +14,7 @@
  */
 import fs from "fs";
 import path from "path";
-import { ZalyxMerchantSnapshot, UnderwritingReport } from "./types";
+import { FinancingOfferRange, ZalyxMerchantSnapshot, UnderwritingReport } from "./types";
 import {
   StoredDecision,
   readLocalDecisions,
@@ -75,6 +75,7 @@ export interface DecisionSummaryRow {
   decision: string;
   createdAt: string;
   approvedAmountNaira?: number;
+  approvedRange?: FinancingOfferRange;
   executionTime?: string;
 }
 export interface DecisionTypeRow {
@@ -156,12 +157,13 @@ export async function getMerchantDecisionSummaries(merchantId: string): Promise<
     return readLocalDecisions()
       .filter((d) => d.merchantId === merchantId)
       .sort((a, b) => b.requestId.localeCompare(a.requestId))
-      .map(({ merchantId, requestId, decision, createdAt, approvedAmountNaira, executionTime }) => ({
+      .map(({ merchantId, requestId, decision, createdAt, approvedAmountNaira, executionTime, report }) => ({
         merchantId,
         requestId,
         decision,
         createdAt,
         approvedAmountNaira,
+        approvedRange: report.humanReview?.approvedRange ?? report.financingStructure?.offerRange,
         executionTime,
       }));
   }
@@ -350,8 +352,19 @@ async function getMerchantDecisionSummariesReal(merchantId: string): Promise<Dec
     decision: m.decision,
     createdAt: m.createdAt,
     approvedAmountNaira: typeof m.approvedAmountNaira?.toNumber === "function" ? m.approvedAmountNaira.toNumber() : Number(m.approvedAmountNaira ?? 0),
+    approvedRange: parseApprovedRange(m.report),
     executionTime: m.executionTime,
   }));
+}
+
+function parseApprovedRange(reportJson?: string): FinancingOfferRange | undefined {
+  if (!reportJson) return undefined;
+  try {
+    const report = JSON.parse(reportJson) as UnderwritingReport;
+    return report.humanReview?.approvedRange ?? report.financingStructure?.offerRange;
+  } catch {
+    return undefined;
+  }
 }
 
 async function getDecisionByIdReal(

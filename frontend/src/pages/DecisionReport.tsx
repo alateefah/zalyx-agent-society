@@ -122,7 +122,7 @@ export function DecisionReport() {
     <div className="app">
       <Header isMock={isMock} breadcrumbs={breadcrumbs} />
 
-      {/* "Run again" strip above the report */}
+      {/* Monthly review strip above the report */}
       <div style={{
         background: "var(--surface)", borderBottom: "1px solid var(--border)",
         padding: "10px 15%", display: "flex", alignItems: "center", justifyContent: "space-between",
@@ -138,7 +138,7 @@ export function DecisionReport() {
           onClick={() => navigate(workspacePath)}
           style={{ fontSize: 12 }}
         >
-          Run new underwriting ↗
+          Run monthly review ↗
         </button>
       </div>
 

@@ -6,6 +6,7 @@ import {
 } from "../utils/types";
 import { qwenClient, SUBMIT_RISK_VERDICT_TOOL } from "../utils/qwen-client";
 import { mcpClient } from "../utils/mcp-client";
+import { computeDeterministicRiskProfile } from "../utils/policy-metrics";
 
 const fmt = (n: number) =>
   `₦${n.toLocaleString("en-NG", { maximumFractionDigits: 0 })}`;
@@ -21,7 +22,7 @@ export class RiskAssessmentAgent {
     result: RiskAssessmentResult;
     debateMessage: AgentDebateMessage;
   }> {
-    const risk = this.assessRisk(snapshot, businessAnalysis);
+    const risk = computeDeterministicRiskProfile(snapshot);
     const revenues = snapshot.monthlyRevenue.map(m => m.revenueNaira);
 
     // ── MCP Tool Call 3: Sector default rate ──────────────────────────────────
@@ -111,9 +112,9 @@ Push back hard where warranted. The business analyst tends to be optimistic.
       ? (response.toolCall.arguments as any)
       : null;
 
-    const riskFactors: string[] = tc?.key_risk_factors ?? risk.riskFactors;
-    const overallRiskScore: number = tc?.adjusted_risk_score ?? risk.overallRiskScore;
-    const riskLevel: string = tc?.risk_level ?? (
+    const riskFactors: string[] = risk.riskFactors;
+    const overallRiskScore: number = risk.overallRiskScore;
+    const riskLevel: string = (
       overallRiskScore < 35 ? "LOW" : overallRiskScore < 60 ? "MODERATE" : "HIGH"
     );
 
@@ -200,116 +201,4 @@ Max 150 words. Be decisive — this is your last word.
     };
   }
 
-  private assessRisk(
-    snapshot: ZalyxMerchantSnapshot,
-    businessAnalysis: BusinessAnalysisResult
-  ): {
-    overallRiskScore: number;
-    volatilityIndex: number;
-    concentrationRisk: "low" | "medium" | "high";
-    operationalStability: number;
-    riskFactors: string[];
-    receivablesRate: number;
-  } {
-    const riskFactors: string[] = [];
-    let riskScore = 0;
-
-    // 1. Receivables risk
-    const totalRevenue = snapshot.monthlyRevenue.reduce((s, m) => s + m.revenueNaira, 0);
-    const receivablesRate = totalRevenue > 0
-      ? (snapshot.receivables.uncollectedNaira / totalRevenue) * 100
-      : 0;
-    if (receivablesRate > 30) {
-      riskScore += 20;
-      riskFactors.push(`High uncollected receivables (${receivablesRate.toFixed(0)}% of total revenue)`);
-    } else if (receivablesRate > 15) {
-      riskScore += 10;
-      riskFactors.push(`Moderate uncollected receivables (${receivablesRate.toFixed(0)}% of revenue)`);
-    }
-
-    // 2. Revenue volatility
-    const revenues = snapshot.monthlyRevenue.map(m => m.revenueNaira);
-    const mean = revenues.reduce((s, r) => s + r, 0) / revenues.length;
-    const stdDev = Math.sqrt(revenues.reduce((s, r) => s + Math.pow(r - mean, 2), 0) / revenues.length);
-    const volatilityIndex = mean > 0 ? Math.round(Math.min((stdDev / mean) * 100, 100)) : 50;
-    if (volatilityIndex > 60) {
-      riskScore += 15;
-      riskFactors.push(`High revenue volatility (CV: ${volatilityIndex}%) — unpredictable cash flow`);
-    }
-
-    // 3. Revenue decline — exclude the current (partial) calendar month from trend
-    const currentYearMonth = new Date().toISOString().slice(0, 7);
-    const latestEntry = snapshot.monthlyRevenue[snapshot.monthlyRevenue.length - 1];
-    const latestIsPartial = latestEntry?.month >= currentYearMonth;
-    const revenuesForTrend = latestIsPartial && revenues.length > 2
-      ? revenues.slice(0, -1)
-      : revenues;
-
-    if (revenuesForTrend.length > 1) {
-      const latest = revenuesForTrend[revenuesForTrend.length - 1];
-      const peak = Math.max(...revenuesForTrend);
-      const decline = ((latest - peak) / peak) * 100;
-      if (decline < -50) {
-        riskScore += 20;
-        riskFactors.push(`Revenue down ${Math.abs(decline).toFixed(0)}% from peak — significant decline`);
-      } else if (decline < -25) {
-        riskScore += 10;
-        riskFactors.push(`Revenue down ${Math.abs(decline).toFixed(0)}% from peak`);
-      }
-    }
-
-    // 4. Inactivity
-    if (snapshot.signals.period30d.activeDays === 0) {
-      riskScore += 25;
-      riskFactors.push("No platform activity in last 30 days — possible churn or business pause");
-    } else if (snapshot.signals.period30d.activeDays < 5) {
-      riskScore += 10;
-      riskFactors.push(`Low activity (${snapshot.signals.period30d.activeDays} days) in last 30 days`);
-    }
-
-    // 5. Business age
-    if (snapshot.ageInDays < 60) {
-      riskScore += 15;
-      riskFactors.push(`Early-stage business (${snapshot.ageInDays} days) — limited repayment track record`);
-    } else if (snapshot.ageInDays < 90) {
-      riskScore += 5;
-    }
-
-    // 6. Low data volume
-    if (snapshot.monthlyRevenue.length < 2) {
-      riskScore += 10;
-      riskFactors.push("Single month of data — impossible to assess trend or seasonality");
-    }
-
-    // 7. Low completion rate
-    const completionRate = snapshot.orders.total > 0
-      ? snapshot.orders.completed / snapshot.orders.total
-      : 0;
-    if (completionRate < 0.5) {
-      riskScore += 15;
-      riskFactors.push(`Low order completion rate (${(completionRate * 100).toFixed(0)}%) — collections concern`);
-    }
-
-    // Concentration risk: single customer concentration
-    const maxMonthCustomers = Math.max(...snapshot.monthlyRevenue.map(m => m.uniqueCustomers));
-    const concentrationRisk: "low" | "medium" | "high" =
-      maxMonthCustomers > 15 ? "low" : maxMonthCustomers > 8 ? "medium" : "high";
-    if (concentrationRisk === "high") {
-      riskScore += 10;
-      riskFactors.push(`Low customer count (max ${maxMonthCustomers}/month) — revenue concentration risk`);
-    }
-
-    // Operational stability: inverse of inactivity
-    const activityRatio = snapshot.signals.period90d.activeDays / 90;
-    const operationalStability = Math.round(activityRatio * 100);
-
-    return {
-      overallRiskScore: Math.min(riskScore, 100),
-      volatilityIndex,
-      concentrationRisk,
-      operationalStability,
-      riskFactors,
-      receivablesRate,
-    };
-  }
 }

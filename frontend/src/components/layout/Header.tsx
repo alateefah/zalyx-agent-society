@@ -13,12 +13,17 @@ interface Props {
 
 function ZalyxLogo({ height = 32 }: { height?: number }) {
   return (
-    <img
-      src="/zalyx-logo.png"
-      height={height}
-      style={{ display: "block", width: "auto" }}
-      alt="Zalyx logo"
-    />
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+      <img
+        src="/zalyx-icon.png"
+        height={height}
+        width={height}
+        style={{ display: "block" }}
+        alt=""
+        aria-hidden="true"
+      />
+      <span className="logo-text">Zalyx</span>
+    </span>
   );
 }
 

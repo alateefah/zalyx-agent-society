@@ -39,3 +39,7 @@ underwrite-*.json
 
 # Generated mock data
 data/decisions.local.json
+
+# Generated benchmark output
+benchmark/result.json
+benchmark/results.json

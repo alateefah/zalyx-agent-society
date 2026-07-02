@@ -139,7 +139,7 @@ export function MerchantsDashboard() {
                   {m.existingDecision && (
                     <span style={{
                       fontSize: 11, fontWeight: 600, flexShrink: 0,
-                      background: "rgba(34,197,94,0.1)", color: "var(--green)",
+                      background: "rgba(21,128,61,0.09)", color: "var(--green)",
                       padding: "2px 8px", borderRadius: 20,
                     }}>
                       Tier {m.existingDecision.tier}

@@ -10,9 +10,9 @@ interface Props {
 }
 
 const DECISION_COLOR: Record<string, string> = {
-  approved: "#22c55e",
-  rejected: "#ef4444",
-  "requires-clarification": "#f59e0b",
+  approved: "#15803d",
+  rejected: "#b91c1c",
+  "requires-clarification": "#b45309",
 };
 
 export function DecisionHistoryPanel({ merchantId, onLoadReport }: Props) {
@@ -66,7 +66,7 @@ export function DecisionHistoryPanel({ merchantId, onLoadReport }: Props) {
           )}
           {!loading && history.length === 0 && (
             <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
-              No past decisions — run underwriting to create one.
+              No past decisions — run monthly review to create one.
             </div>
           )}
           {!loading && history.map((entry, i) => (

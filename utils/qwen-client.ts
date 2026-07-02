@@ -196,13 +196,21 @@ export const STRUCTURE_MURABAHA_OFFER_TOOL = {
   function: {
     name: "structure_murabaha_offer",
     description:
-      "Submit your Murabaha-compliant financing offer with precise terms. Murabaha = fixed fee, no interest, no compounding.",
+      "Explain the deterministic Murabaha offer range and disbursement conditions. Murabaha = fixed fee, no interest, no compounding.",
     parameters: {
       type: "object",
       properties: {
+        min_investment_naira: {
+          type: "number",
+          description: "Minimum customer-selectable investment amount in naira, copied from policy engine",
+        },
+        max_investment_naira: {
+          type: "number",
+          description: "Maximum approved investment amount in naira, copied from policy engine",
+        },
         principal_naira: {
           type: "number",
-          description: "Principal financing amount in naira",
+          description: "Deprecated single amount. The backend ignores this value and uses the policy range.",
         },
         fixed_fee_naira: {
           type: "number",
@@ -232,11 +240,7 @@ export const STRUCTURE_MURABAHA_OFFER_TOOL = {
         },
       },
       required: [
-        "principal_naira",
-        "fixed_fee_naira",
-        "fixed_fee_pct",
-        "tenor_months",
-        "repayment_schedule_description",
+        "disbursement_conditions",
         "structuring_rationale",
       ],
     },
@@ -259,7 +263,7 @@ export const ISSUE_UNDERWRITING_DECISION_TOOL = {
         },
         approved_amount_naira: {
           type: "number",
-          description: "Approved financing amount in naira. 0 if rejected.",
+          description: "Maximum approved investment cap in naira. The backend sets this from policy; 0 if rejected.",
         },
         decision_rationale_underwriter: {
           type: "string",
@@ -374,6 +378,8 @@ const MOCK_TOOL_CALLS: Record<string, { name: string; arguments: Record<string, 
   "Financing Structure Agent": {
     name: "structure_murabaha_offer",
     arguments: {
+      min_investment_naira: 91332,
+      max_investment_naira: 182665,
       principal_naira: 182665,
       fixed_fee_naira: 32235,
       fixed_fee_pct: 15,
@@ -382,9 +388,9 @@ const MOCK_TOOL_CALLS: Record<string, { name: string; arguments: Record<string, 
         "Collection of ₦530,000 in outstanding receivables (50% of uncollected balance)",
         "Confirmation that active business cycle has commenced",
       ],
-      repayment_schedule_description: "₦71,633/month over 3 months (sale price: ₦214,900)",
+      repayment_schedule_description: "₦35,817–₦71,633/month over 3 months (sale price range: ₦107,450–₦214,900)",
       structuring_rationale:
-        "Murabaha structure: sale price ₦214,900 = 15% of avg monthly GTV (₦1,432,667) — moderate risk tier. Zalyx purchases asset at cost price ₦182,665, sells to merchant at fixed sale price ₦214,900 (15% profit margin, disclosed upfront). Monthly installment ₦71,633 = 5.0% of monthly GTV — well within the 20% affordability cap. 3-month tenor matched to merchant's revenue cycle. No interest, no compounding, ownership transfers on asset purchase.",
+        "Murabaha structure: approved cost price range ₦91,332–₦182,665, tied to a sale price range of ₦107,450–₦214,900. The maximum sale price is 15% of avg monthly GTV (₦1,432,667), moderate risk tier. The merchant chooses any amount inside the range; Zalyx purchases the selected asset at cost price and sells it at the fixed disclosed sale price. Monthly installments range from ₦35,817 to ₦71,633, well within the 20% affordability cap. No interest, no compounding, ownership transfers on asset purchase.",
     },
   },
   "Human Review Agent": {
@@ -393,9 +399,9 @@ const MOCK_TOOL_CALLS: Record<string, { name: string; arguments: Record<string, 
       decision: "approved",
       approved_amount_naira: 182665,
       decision_rationale_underwriter:
-        "Agent debate reached productive consensus. Business Analyst identified term-fee seasonality that initially appeared as inactivity risk. Risk Officer moderated after rebuttal, maintaining only the receivables collection requirement. Financing Agent computed sale price ₦214,900 = 15% of avg monthly GTV (₦1,432,667), moderate risk tier, 15% profit margin. Monthly installment ₦71,633 = 5% of monthly GTV — comfortably affordable. Zalyx system prior score of 75/100 Tier B corroborates approval decision.",
+        "Agent debate reached productive consensus. Business Analyst identified term-fee seasonality that initially appeared as inactivity risk. Risk Officer moderated after rebuttal, maintaining only the receivables collection requirement. Financing Agent computed an approved cost price range of ₦91,332–₦182,665 from avg monthly GTV (₦1,432,667), moderate risk tier, 15% profit margin, and the affordability cap. Zalyx system prior score of 75/100 Tier B corroborates approval decision.",
       decision_rationale_merchant:
-        "Your Murabaha financing has been approved. Zalyx will purchase the asset(s) you need at a cost price of ₦182,665, then sell them to you at a fixed sale price of ₦214,900 — the ₦32,235 difference is Zalyx's disclosed profit margin, not interest. Ownership transfers to you immediately. You repay ₦71,633/month over 3 months. Before we purchase the asset(s), we need to see collection on at least half your outstanding receivables.",
+        "Your Murabaha financing has been approved for a selectable cost price range of ₦91,332–₦182,665. You choose the amount inside that range, and Zalyx purchases the asset(s) at that cost price, then sells them to you at the fixed disclosed sale price. The sale price range is ₦107,450–₦214,900 over 3 months. Before we purchase the asset(s), we need to see collection on at least half your outstanding receivables.",
       mandatory_conditions: [
         "Collect ₦530,000+ in outstanding receivables before disbursal",
         "Confirm active business cycle has commenced (15+ active days)",
@@ -411,6 +417,7 @@ const MOCK_TOOL_CALLS: Record<string, { name: string; arguments: Record<string, 
 export class QwenClient {
   private client: OpenAI | null = null;
   private model: string;
+  private temperature: number;
   readonly mockMode: boolean;
   private _callCount = 0;
 
@@ -421,6 +428,7 @@ export class QwenClient {
   constructor() {
     const apiKey = process.env.QWEN_API_KEY;
     this.model = process.env.QWEN_MODEL || "qwen-max";
+    this.temperature = Number(process.env.QWEN_TEMPERATURE ?? "0");
 
     if (!apiKey || apiKey === "your_qwen_cloud_api_key_here") {
       console.warn(
@@ -480,7 +488,7 @@ export class QwenClient {
       const response = await this.client!.chat.completions.create({
         model: this.model,
         messages: allMessages as any,
-        temperature: 0.7,
+        temperature: this.temperature,
         max_tokens: 1500,
       });
 
@@ -523,7 +531,7 @@ export class QwenClient {
         tool_choice: forceToolName
           ? { type: "function", function: { name: forceToolName } }
           : "auto",
-        temperature: 0.7,
+        temperature: this.temperature,
         max_tokens: 4000,
       });
 

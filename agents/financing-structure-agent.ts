@@ -7,6 +7,7 @@ import {
 } from "../utils/types";
 import { qwenClient, STRUCTURE_MURABAHA_OFFER_TOOL } from "../utils/qwen-client";
 import { computeMurabahaStructure } from "../utils/murabaha-engine";
+import { computeOfferPolicyInputs } from "../utils/policy-metrics";
 
 const fmt = (n: number) =>
   `₦${n.toLocaleString("en-NG", { maximumFractionDigits: 0 })}`;
@@ -23,10 +24,31 @@ export class FinancingStructureAgent {
     result: FinancingStructureResult;
     debateMessage: AgentDebateMessage;
   }> {
+    const policyInputs = computeOfferPolicyInputs(snapshot);
     const structure = computeMurabahaStructure({
-      avgMonthlyGTV: businessAnalysis.monthlyRevenueAverage,
-      riskScore: riskAssessment.overallRiskScore,
+      avgMonthlyGTV: policyInputs.avgMonthlyGTV,
+      riskScore: policyInputs.riskScore,
     });
+
+    const offerRange = {
+      minCostPriceNaira: structure.minCostPriceNaira,
+      maxCostPriceNaira: structure.maxCostPriceNaira,
+      recommendedCostPriceNaira: structure.recommendedCostPriceNaira,
+      minSalePriceNaira: structure.minSalePriceNaira,
+      maxSalePriceNaira: structure.maxSalePriceNaira,
+      recommendedSalePriceNaira: structure.recommendedSalePriceNaira,
+      profitMarginPct: structure.profitMarginPct,
+      tenorMonths: structure.tenorMonths,
+      customerSelectable: true,
+      reviewCadence: policyInputs.reviewCadence,
+      reviewPeriod: policyInputs.reviewPeriod,
+      validFrom: policyInputs.validFrom,
+      validUntil: policyInputs.validUntil,
+      policyVersion: policyInputs.policyVersion,
+    };
+    const costRangeLabel = `${fmt(structure.minCostPriceNaira)}–${fmt(structure.maxCostPriceNaira)}`;
+    const saleRangeLabel = `${fmt(structure.minSalePriceNaira)}–${fmt(structure.maxSalePriceNaira)}`;
+    const installmentRangeLabel = `${fmt(structure.minMonthlyInstallmentNaira)}–${fmt(structure.maxMonthlyInstallmentNaira)}`;
 
     const prompt = `
 You are a fintech structuring specialist designing a Murabaha-compliant financing offer for a Nigerian merchant.
@@ -36,7 +58,10 @@ to the merchant at a fixed SALE PRICE (cost + profit). The merchant repays the s
 installments. Ownership transfers immediately on sale. No interest, no compounding, no late fees.
 
 MERCHANT: ${snapshot.businessName} (${snapshot.businessType})
-Avg monthly GTV: ${fmt(businessAnalysis.monthlyRevenueAverage)}
+Avg monthly GTV: ${fmt(policyInputs.avgMonthlyGTV)}
+Review cadence: monthly
+Review period: ${policyInputs.reviewPeriod} data, valid ${policyInputs.validFrom} to ${policyInputs.validUntil}
+Policy risk score: ${policyInputs.riskScore}/100
 Platform age: ${snapshot.ageInDays} days
 
 AGENT DEBATE SO FAR:
@@ -45,23 +70,25 @@ AGENT DEBATE SO FAR:
 - Risk factors: ${riskAssessment.riskFactors.length > 0 ? riskAssessment.riskFactors.join("; ") : "None"}
 
 POLICY ENGINE — COMPUTED MURABAHA STRUCTURE:
-- Risk tier: ${riskAssessment.overallRiskScore < 35 ? "LOW" : riskAssessment.overallRiskScore < 65 ? "MODERATE" : "HIGH"}
-- GTV offer %: ${riskAssessment.overallRiskScore < 35 ? "25%" : riskAssessment.overallRiskScore < 65 ? "15%" : "5%"} of avg monthly GTV
-- Sale price (merchant repays): ${fmt(structure.salePriceNaira)}
-- Profit margin: ${structure.profitMarginPct.toFixed(0)}% of sale price = ${fmt(structure.profitNaira)}
-- Cost price (Zalyx buys asset at): ${fmt(structure.costPriceNaira)}
+- Risk tier: ${structure.riskTier.toUpperCase()}
+- Maximum sale price cap: ${fmt(structure.maxSalePriceNaira)} (${structure.riskTier === "low" ? "25%" : structure.riskTier === "moderate" ? "15%" : "5%"} of avg monthly GTV)
+- Customer-selectable sale price range: ${saleRangeLabel}
+- Customer-selectable cost price / investment range: ${costRangeLabel}
+- Recommended/default cost price: ${fmt(structure.recommendedCostPriceNaira)}
+- Profit margin: ${structure.profitMarginPct.toFixed(0)}% of selected sale price
 - Tenor: ${structure.tenorMonths} months
-- Monthly installment: ${fmt(structure.monthlyInstallmentNaira)}
+- Monthly installment range: ${installmentRangeLabel}/month
 - Installment as % of monthly GTV: ${(structure.affordabilityRatio * 100).toFixed(1)}% (must be ≤ 20%)
 
 DISBURSEMENT CONDITIONS: ${this.buildMitigations(snapshot, riskAssessment).join("; ")}
 
 As the structuring agent:
-1. Confirm the sale price, cost price, and profit margin — state them plainly for the merchant.
-2. Justify the tenor — why ${structure.tenorMonths} months fits this merchant's repayment cycle.
-3. Confirm the affordability ratio is acceptable and explain what it means.
-4. Address any risk flags and how the structure accounts for them.
-5. Remind that this is Murabaha: fixed profit, no compounding, ownership transfers on purchase.
+1. Do not choose a single amount. Explain the approved range and that the merchant may choose any amount inside it.
+2. Explain that this range is fixed for the monthly review period and rerunning inside the same period does not improve the offer.
+3. Justify the tenor — why ${structure.tenorMonths} months fits this merchant's repayment cycle.
+4. Confirm the affordability ratio is acceptable and explain what it means.
+5. Address any risk flags and how the structure accounts for them.
+6. Remind that this is Murabaha: fixed profit, no compounding, ownership transfers on purchase.
 
 Be specific. Reference the actual naira figures.
 `;
@@ -73,39 +100,30 @@ Be specific. Reference the actual naira figures.
       this.agentName
     );
 
-    // Prefer Qwen's structured output; fall back to policy engine values
+    // Qwen may explain terms and conditions, but policy owns the money values.
     const tc = response.toolCall?.name === "structure_murabaha_offer"
       ? (response.toolCall.arguments as any)
       : null;
 
-    // If Qwen returned tool values, recompute Murabaha split from its principal
-    const salePriceNaira: number = tc?.principal_naira
-      ? Math.round(tc.principal_naira * (1 + (tc.fixed_fee_pct ?? structure.profitMarginPct) / 100))
-      : structure.salePriceNaira;
-    const profitMarginPct: number = tc?.fixed_fee_pct ?? structure.profitMarginPct;
-    const profitNaira: number = tc?.fixed_fee_naira ?? structure.profitNaira;
-    const costPriceNaira: number = salePriceNaira - profitNaira;
-    const tenorMonths: number = tc?.tenor_months ?? structure.tenorMonths;
-    const monthlyInstallment = Math.round(salePriceNaira / tenorMonths);
-    const schedule: string = tc?.repayment_schedule_description
-      ?? `${fmt(monthlyInstallment)}/month over ${tenorMonths} months (sale price: ${fmt(salePriceNaira)})`;
+    const schedule = `${installmentRangeLabel}/month over ${structure.tenorMonths} months (sale price range: ${saleRangeLabel})`;
     const disbursementConditions: string[] = tc?.disbursement_conditions ?? this.buildMitigations(snapshot, riskAssessment);
 
     const result: FinancingStructureResult = {
-      proposedAmount: fmt(costPriceNaira),
-      repaymentTerms: `Murabaha · Cost price ${fmt(costPriceNaira)} → Sale price ${fmt(salePriceNaira)} · Profit margin ${profitMarginPct.toFixed(0)}%`,
+      proposedAmount: costRangeLabel,
+      offerRange,
+      repaymentTerms: `Murabaha · Customer selects cost price ${costRangeLabel} → sale price ${saleRangeLabel} · Profit margin ${structure.profitMarginPct.toFixed(0)}%`,
       paymentSchedule: schedule,
       riskMitigation: disbursementConditions.length > 0 ? disbursementConditions : this.buildMitigations(snapshot, riskAssessment),
-      rationale: tc?.structuring_rationale
-        ?? `Sale price ${fmt(salePriceNaira)} = ${structure.profitMarginPct.toFixed(0)}% of avg monthly GTV (${fmt(businessAnalysis.monthlyRevenueAverage)}). Monthly installment ${fmt(monthlyInstallment)} = ${(structure.affordabilityRatio * 100).toFixed(1)}% of monthly GTV — within the 20% affordability threshold.`,
+      rationale:
+        `Policy range: Zalyx can invest ${costRangeLabel}. The merchant may choose a smaller ticket inside the range; the maximum cap is anchored to ${fmt(policyInputs.avgMonthlyGTV)} avg monthly GTV, ${structure.riskTier} risk tier, and the 20% installment affordability threshold. This is the ${policyInputs.reviewPeriod} monthly review offer, valid through ${policyInputs.validUntil}; reruns inside the same review period reuse the same policy range unless merchant data or policy version changes.`,
     };
 
     const debateMessage: AgentDebateMessage = {
       agentName: this.agentName,
       agentRole: this.agentRole,
       timestamp: new Date().toISOString(),
-      message: response.message || `Murabaha: Zalyx buys asset at ${fmt(costPriceNaira)}, sells to merchant at ${fmt(salePriceNaira)}. Repaid ${fmt(monthlyInstallment)}/month over ${tenorMonths} months.`,
-      recommendation: `${fmt(costPriceNaira)} cost price · ${fmt(salePriceNaira)} sale price · ${tenorMonths} months`,
+      message: `Murabaha policy range: Zalyx can buy assets costing ${costRangeLabel}; the merchant chooses the actual ticket. Zalyx then sells at a fixed sale price range of ${saleRangeLabel}, repaid ${installmentRangeLabel}/month over ${structure.tenorMonths} months. This ${policyInputs.reviewPeriod} monthly offer is valid through ${policyInputs.validUntil}; no model-chosen principal or retry-improved amount is used.`,
+      recommendation: `${costRangeLabel} selectable cost price · ${structure.tenorMonths} months`,
       confidence: Math.round((businessAnalysis.businessHealthScore + (100 - riskAssessment.overallRiskScore)) / 2),
     };
 
@@ -117,7 +135,7 @@ Be specific. Reference the actual naira figures.
     riskAssessment: RiskAssessmentResult
   ): string[] {
     const m: string[] = [];
-    if (riskAssessment.overallRiskScore > 60) m.push("Reduced principal to limit exposure");
+    if (riskAssessment.overallRiskScore > 60) m.push("Reduced approved cap to limit exposure");
     if (snapshot.signals.period30d.activeDays < 5) m.push("Conditional on 15+ active days within 30 days of disbursement");
     if (snapshot.receivables.uncollectedNaira > 300000) m.push("Merchant to demonstrate receivables collection before disbursal");
     if (snapshot.ageInDays < 90) m.push("Short tenor (2–3 months) due to limited platform history");

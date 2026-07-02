@@ -42,13 +42,14 @@ export function ReportView({ report, baseline, isMock, merchantId, onBack }: Pro
   const decisionColor = decision === "approved" ? "green" : decision === "rejected" ? "red" : "amber";
   const DecisionIcon  = decision === "approved" ? CheckCircle2 : decision === "rejected" ? XCircle : Clock;
   const decisionLabel = decision === "approved" ? "Approved" : decision === "rejected" ? "Rejected" : "Requires clarification";
+  const offerRange = report.financingStructure.offerRange ?? report.humanReview.approvedRange;
 
   const riskColor =
     report.riskAssessment.overallRiskScore > 60
-      ? "#ef4444"
+      ? "#b91c1c"
       : report.riskAssessment.overallRiskScore > 35
-      ? "#f59e0b"
-      : "#22c55e";
+      ? "#b45309"
+      : "#15803d";
 
   const exportJson = () => {
     const blob = new Blob([JSON.stringify(report, null, 2)], { type: "application/json" });
@@ -115,10 +116,10 @@ export function ReportView({ report, baseline, isMock, merchantId, onBack }: Pro
           {/* Data Quality */}
           <div className="score-card">
             <div className="score-card-header">
-              <div className="score-card-title"><ShieldCheck size={14} color="#6366f1" /> Data Quality</div>
+              <div className="score-card-title"><ShieldCheck size={14} color="#2563eb" /> Data Quality</div>
               <div className="score-num">{report.dataQuality.overallScore.toFixed(0)}<span>/100</span></div>
             </div>
-            <ScoreBar score={report.dataQuality.overallScore} color="#6366f1" />
+            <ScoreBar score={report.dataQuality.overallScore} color="#2563eb" />
             <div className="score-rows">
               <div className="score-row"><span className="score-row-label">Completeness</span><span className="score-row-value">{report.dataQuality.completeness.toFixed(0)}%</span></div>
               <div className="score-row"><span className="score-row-label">Consistency</span><span className="score-row-value">{report.dataQuality.consistency.toFixed(0)}%</span></div>
@@ -135,10 +136,10 @@ export function ReportView({ report, baseline, isMock, merchantId, onBack }: Pro
           {/* Business Health */}
           <div className="score-card">
             <div className="score-card-header">
-              <div className="score-card-title"><TrendingUp size={14} color="#22c55e" /> Business Health</div>
+              <div className="score-card-title"><TrendingUp size={14} color="#15803d" /> Business Health</div>
               <div className="score-num">{report.businessAnalysis.businessHealthScore.toFixed(0)}<span>/100</span></div>
             </div>
-            <ScoreBar score={report.businessAnalysis.businessHealthScore} color="#22c55e" />
+            <ScoreBar score={report.businessAnalysis.businessHealthScore} color="#15803d" />
             <div className="score-rows">
               <div className="score-row"><span className="score-row-label">Avg monthly revenue</span><span className="score-row-value">{fmt(report.businessAnalysis.monthlyRevenueAverage)}</span></div>
               <div className="score-row"><span className="score-row-label">Revenue stability</span><span className="score-row-value">{report.businessAnalysis.revenueStability.toFixed(0)}/100</span></div>
@@ -149,7 +150,7 @@ export function ReportView({ report, baseline, isMock, merchantId, onBack }: Pro
           {/* Risk */}
           <div className="score-card">
             <div className="score-card-header">
-              <div className="score-card-title"><AlertTriangle size={14} color="#f59e0b" /> Risk Score</div>
+              <div className="score-card-title"><AlertTriangle size={14} color="#b45309" /> Risk Score</div>
               <div className="score-num">{report.riskAssessment.overallRiskScore.toFixed(0)}<span>/100</span></div>
             </div>
             <ScoreBar score={report.riskAssessment.overallRiskScore} color={riskColor} />
@@ -171,10 +172,24 @@ export function ReportView({ report, baseline, isMock, merchantId, onBack }: Pro
           {decision === "approved" && (
             <div className="score-card">
               <div className="score-card-header">
-                <div className="score-card-title"><Landmark size={14} color="#3b82f6" /> Financing terms</div>
+                <div className="score-card-title"><Landmark size={14} color="#475569" /> Financing terms</div>
               </div>
               <div className="terms-list">
-                <div className="term-row"><span className="term-label">Cost price</span><span className="term-value">{report.financingStructure.proposedAmount}</span></div>
+                <div className="term-row"><span className="term-label">Investment range</span><span className="term-value">{report.financingStructure.proposedAmount}</span></div>
+                {offerRange && (
+                  <>
+                    <div className="term-row"><span className="term-label">Maximum exposure</span><span className="term-value">{fmt(offerRange.maxCostPriceNaira)}</span></div>
+                    <div className="term-row"><span className="term-label">Customer choice</span><span className="term-value">Any amount from {fmt(offerRange.minCostPriceNaira)} to {fmt(offerRange.maxCostPriceNaira)}</span></div>
+                    <div className="term-row"><span className="term-label">Sale price range</span><span className="term-value">{fmt(offerRange.minSalePriceNaira)}–{fmt(offerRange.maxSalePriceNaira)}</span></div>
+                    <div className="term-row"><span className="term-label">Profit margin</span><span className="term-value">{offerRange.profitMarginPct.toFixed(0)}% fixed Murabaha margin</span></div>
+                    {offerRange.reviewPeriod && (
+                      <div className="term-row"><span className="term-label">Review period</span><span className="term-value">{offerRange.reviewPeriod} · monthly offer</span></div>
+                    )}
+                    {offerRange.validUntil && (
+                      <div className="term-row"><span className="term-label">Valid until</span><span className="term-value">{offerRange.validUntil}</span></div>
+                    )}
+                  </>
+                )}
                 <div className="term-row"><span className="term-label">Murabaha terms</span><span className="term-value">{report.financingStructure.repaymentTerms}</span></div>
                 <div className="term-row"><span className="term-label">Installments</span><span className="term-value">{report.financingStructure.paymentSchedule}</span></div>
               </div>
@@ -191,7 +206,7 @@ export function ReportView({ report, baseline, isMock, merchantId, onBack }: Pro
           {/* Human Review */}
           <div className="score-card">
             <div className="score-card-header">
-              <div className="score-card-title"><UserCheck size={14} color="#a78bfa" /> Human review</div>
+              <div className="score-card-title"><UserCheck size={14} color="#64748b" /> Human review</div>
             </div>
             <div className="score-rows">
               <div className="score-row">
@@ -211,13 +226,13 @@ export function ReportView({ report, baseline, isMock, merchantId, onBack }: Pro
           {report.debateLedger && (
             <div className="score-card">
               <div className="score-card-header" onClick={toggleLedger} style={{ cursor: "pointer", userSelect: "none" }}>
-                <div className="score-card-title"><Scale size={14} color="#f59e0b" /> Debate ledger</div>
+                <div className="score-card-title"><Scale size={14} color="#b45309" /> Debate ledger</div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto" }}>
                   <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
                     {report.debateLedger.resolvedClaims}/{report.debateLedger.totalClaims} resolved ·{" "}
-                    <span style={{ color: "#22c55e" }}>{report.debateLedger.claimsConcededByRisk} conceded</span>
+                    <span style={{ color: "#15803d" }}>{report.debateLedger.claimsConcededByRisk} conceded</span>
                     {report.debateLedger.claimsUphelByRisk > 0 && (
-                      <span style={{ color: "#ef4444" }}> · {report.debateLedger.claimsUphelByRisk} upheld</span>
+                      <span style={{ color: "#b91c1c" }}> · {report.debateLedger.claimsUphelByRisk} upheld</span>
                     )}
                   </span>
                   <ChevronDown size={12} color="var(--text-muted)" style={{ transform: ledgerOpen ? "rotate(180deg)" : "none", transition: "transform 0.2s" }} />
@@ -231,11 +246,11 @@ export function ReportView({ report, baseline, isMock, merchantId, onBack }: Pro
                   {report.debateLedger.claims.map((c) => {
                     const claimColor =
                       c.resolution === "claim_withdrawn" || c.resolution === "reframed_as_sector_normal"
-                        ? "#22c55e"
+                        ? "#15803d"
                         : c.resolution === "risk_concern_upheld"
-                        ? "#ef4444"
+                        ? "#b91c1c"
                         : c.resolution === "compromise_condition_set"
-                        ? "#f59e0b"
+                        ? "#b45309"
                         : "var(--border)";
                     return (
                       <div key={c.claimId} style={{ marginTop: 6, padding: "7px 10px", borderRadius: 6, background: "var(--surface-raised)", borderLeft: `3px solid ${claimColor}` }}>
@@ -256,12 +271,12 @@ export function ReportView({ report, baseline, isMock, merchantId, onBack }: Pro
           {report.decisionDelta && (
             <div className="score-card">
               <div className="score-card-header" onClick={toggleDelta} style={{ cursor: "pointer", userSelect: "none" }}>
-                <div className="score-card-title"><GitCompare size={14} color="#6366f1" /> Decision delta</div>
+                <div className="score-card-title"><GitCompare size={14} color="#2563eb" /> Decision delta</div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto" }}>
                   <span style={{
                     fontSize: 11, padding: "2px 7px", borderRadius: 99,
-                    background: report.decisionDelta.decisionChanged ? "rgba(99,102,241,0.15)" : "rgba(34,197,94,0.15)",
-                    color: report.decisionDelta.decisionChanged ? "#a5b4fc" : "#86efac",
+                    background: report.decisionDelta.decisionChanged ? "rgba(37,99,235,0.1)" : "rgba(21,128,61,0.1)",
+                    color: report.decisionDelta.decisionChanged ? "#2563eb" : "#15803d",
                   }}>
                     {report.decisionDelta.baselineDecision} → {report.decisionDelta.multiAgentDecision}
                   </span>
@@ -275,6 +290,13 @@ export function ReportView({ report, baseline, isMock, merchantId, onBack }: Pro
                     <div className="score-row"><span className="score-row-label">Multi-agent time</span><span className="score-row-value">{report.decisionDelta.multiAgentExecutionTime}</span></div>
                   </div>
                   <div style={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.5 }}>{report.decisionDelta.reason}</div>
+                  {report.decisionDelta.valueAdded.length > 0 && (
+                    <div className="conditions-list" style={{ marginTop: 10 }}>
+                      {report.decisionDelta.valueAdded.map((item, i) => (
+                        <div key={i} className="condition-item"><CircleCheck size={11} />{item}</div>
+                      ))}
+                    </div>
+                  )}
                 </>
               )}
             </div>
@@ -284,11 +306,11 @@ export function ReportView({ report, baseline, isMock, merchantId, onBack }: Pro
           {report.observability && (
             <div className="score-card">
               <div className="score-card-header" onClick={toggleObs} style={{ cursor: "pointer", userSelect: "none" }}>
-                <div className="score-card-title"><Activity size={14} color="#06b6d4" /> Observability</div>
+                <div className="score-card-title"><Activity size={14} color="#0f766e" /> Observability</div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto" }}>
                   <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
                     {report.observability.totalQwenCalls}q · {report.observability.totalMcpCalls}m · {report.observability.agentTimings.length} stages
-                    {report.observability.mockMode && <span style={{ color: "#fcd34d" }}> · mock</span>}
+                    {report.observability.mockMode && <span style={{ color: "#b45309" }}> · mock</span>}
                   </span>
                   <ChevronDown size={12} color="var(--text-muted)" style={{ transform: obsOpen ? "rotate(180deg)" : "none", transition: "transform 0.2s" }} />
                 </div>
@@ -298,15 +320,15 @@ export function ReportView({ report, baseline, isMock, merchantId, onBack }: Pro
                   <div className="score-rows" style={{ margin: "8px 0" }}>
                     <div className="score-row"><span className="score-row-label">Request ID</span><span className="score-row-value" style={{ fontSize: 10, fontFamily: "monospace" }}>{report.observability.requestId.slice(0, 20)}…</span></div>
                     <div className="score-row"><span className="score-row-label">Model</span><span className="score-row-value">{report.observability.model}</span></div>
-                    <div className="score-row"><span className="score-row-label">Debate round</span><span className="score-row-value" style={{ color: report.observability.debateRoundFired ? "#22c55e" : "var(--text-muted)" }}>{report.observability.debateRoundFired ? "fired" : "skipped"}</span></div>
+                    <div className="score-row"><span className="score-row-label">Debate round</span><span className="score-row-value" style={{ color: report.observability.debateRoundFired ? "#15803d" : "var(--text-muted)" }}>{report.observability.debateRoundFired ? "fired" : "skipped"}</span></div>
                   </div>
                   <div>
                     {report.observability.agentTimings.map((t) => (
                       <div key={t.agentName} style={{ display: "flex", fontSize: 11, color: "var(--text-muted)", padding: "2px 0", borderBottom: "1px solid var(--border)", gap: 6 }}>
                         <span style={{ flex: 1 }}>{t.agentName}</span>
                         <span style={{ color: "var(--text-secondary)" }}>{t.durationMs}ms</span>
-                        <span style={{ color: "#06b6d4" }}>{t.qwenCallCount}q</span>
-                        <span style={{ color: "#a78bfa" }}>{t.mcpCallCount}m</span>
+                        <span style={{ color: "#0f766e" }}>{t.qwenCallCount}q</span>
+                        <span style={{ color: "#64748b" }}>{t.mcpCallCount}m</span>
                       </div>
                     ))}
                   </div>

@@ -108,8 +108,26 @@ export interface RiskAssessmentResult {
   recommendation: string;
 }
 
+export interface FinancingOfferRange {
+  minCostPriceNaira: number;
+  maxCostPriceNaira: number;
+  recommendedCostPriceNaira: number;
+  minSalePriceNaira: number;
+  maxSalePriceNaira: number;
+  recommendedSalePriceNaira: number;
+  profitMarginPct: number;
+  tenorMonths: number;
+  customerSelectable: boolean;
+  reviewCadence?: "monthly";
+  reviewPeriod?: string;
+  validFrom?: string;
+  validUntil?: string;
+  policyVersion?: string;
+}
+
 export interface FinancingStructureResult {
   proposedAmount: string;
+  offerRange?: FinancingOfferRange;
   repaymentTerms: string;
   paymentSchedule: string;
   riskMitigation: string[];
@@ -120,6 +138,7 @@ export interface HumanReviewResult {
   finalRecommendation: "approved" | "rejected" | "requires-clarification";
   approvalAmount: string;       // formatted display string e.g. "₦271,006"
   approvedAmountNaira: number;  // raw number for DB storage and calculations
+  approvedRange?: FinancingOfferRange;
   termsAdjustments: string;
   agentDebateNotes: string;
   reason: string;

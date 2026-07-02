@@ -9,7 +9,7 @@
  *   yarn benchmark
  *
  * Output:
- *   benchmark/results.json   — full structured results
+ *   benchmark/results.json   — local structured results (git-ignored)
  *   benchmark/results.md     — human-readable comparison table
  */
 
@@ -21,6 +21,7 @@ dotenv.config();
 
 import { AgentOrchestrator } from "../orchestration/agent-orchestrator";
 import { BaselineAgent } from "../agents/baseline-agent";
+import { mcpClient } from "../utils/mcp-client";
 import { ZalyxMerchantSnapshot, UnderwritingReport, BaselineReport } from "../utils/types";
 
 // ── Load merchant snapshots ───────────────────────────────────────────────────
@@ -255,8 +256,9 @@ function toMarkdownTable(rows: BenchmarkRow[]): string {
   lines.push(`|---|---|---|---|---|---|`);
   for (const r of rows) {
     const depthGain = r.rationale_words_multiagent - r.rationale_words_baseline;
+    const depthGainLabel = depthGain >= 0 ? `+${depthGain}` : `${depthGain}`;
     lines.push(
-      `| ${r.merchant_id} | ${r.structured_output_completeness}% | ${r.actionability_score}/100 | ${r.rationale_words_multiagent} | ${r.rationale_words_baseline} | +${depthGain} words |`
+      `| ${r.merchant_id} | ${r.structured_output_completeness}% | ${r.actionability_score}/100 | ${r.rationale_words_multiagent} | ${r.rationale_words_baseline} | ${depthGainLabel} words |`
     );
   }
   lines.push(``);
@@ -339,7 +341,12 @@ async function main() {
   console.log("────────────────────────────────────────────────────────────\n");
 }
 
-main().catch((err) => {
-  console.error("Benchmark failed:", err);
-  process.exit(1);
-});
+main()
+  .then(async () => {
+    await mcpClient.disconnect();
+  })
+  .catch(async (err) => {
+    console.error("Benchmark failed:", err);
+    await mcpClient.disconnect();
+    process.exit(1);
+  });
